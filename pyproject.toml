@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "causalweb"
+version = "0.1.0"
+description = "Hierarchical causal graphs: a YAML schema, an interactive viewer with causal queries and an adjacency matrix, a Sphinx extension and a live-reloading CLI"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = ["pyyaml"]
+
+[project.urls]
+Homepage = "https://github.com/zmbc/causalweb"
+
+[project.optional-dependencies]
+sphinx = ["sphinx", "docutils"]
+test = ["pytest", "playwright"]
+
+[project.scripts]
+causalweb = "causalweb.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["causalweb*"]
+
+[tool.setuptools.package-data]
+causalweb = ["static/*"]

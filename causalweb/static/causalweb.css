@@ -1,0 +1,674 @@
+/* Interactive causal graph viewer (see causalweb.js). */
+
+.causal-graph {
+  margin: 1em 0;
+  border: 1px solid #d7dbe0;
+  border-radius: 4px;
+  background: #fbfbfc;
+  /* Stated explicitly rather than inherited: this widget also renders on the
+     standalone "New tab" page, which has no docs theme to inherit from. */
+  font-family: Lato, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+               Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+  color: #404040;
+}
+
+.causal-graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  align-items: center;
+  padding: 0.5em 0.7em;
+  border-bottom: 1px solid #e4e7ea;
+  font-size: 0.85em;
+}
+
+.causal-graph-controls select,
+.causal-graph-controls button {
+  font-size: inherit;
+  padding: 0.15em 0.5em;
+}
+
+/* Preset levels read as one segmented control. */
+.causal-graph-controls .cg-presets {
+  display: inline-flex;
+}
+
+.causal-graph-controls .cg-presets button {
+  border: 1px solid #c8cdd4;
+  background: #fff;
+  margin: 0 0 0 -1px;
+  cursor: pointer;
+}
+
+.causal-graph-controls .cg-presets button:first-child {
+  margin-left: 0;
+  border-radius: 3px 0 0 3px;
+}
+
+.causal-graph-controls .cg-presets button:last-child {
+  border-radius: 0 3px 3px 0;
+}
+
+.causal-graph-controls .cg-presets button:hover {
+  background: #f0f3f7;
+}
+
+/* The stage holds the graph's area and, when it is switched on, the matrix
+   pane beside it. */
+.causal-graph-stage {
+  position: relative;
+  display: flex;
+  height: var(--cg-height, 640px);
+  width: 100%;
+}
+
+/* The graph's column: canvases above, its legend below. */
+.cg-graph {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Two canvases are stacked here. A redraw builds the next graph in the hidden
+   one and only swaps once its layout is done, so the current graph stays on
+   screen throughout instead of blanking. */
+.cg-canvases {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.cg-graph .causal-graph-legend {
+  flex: none;
+}
+
+.causal-graph-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  cursor: grab;
+}
+
+/* Nodes are clickable, the background is draggable. Order matters: panning
+   wins over both, since these have equal specificity. */
+.causal-graph-canvas.cg-over-node {
+  cursor: pointer;
+}
+
+.causal-graph-canvas.cg-panning {
+  cursor: grabbing;
+}
+
+.causal-graph-canvas.cg-offstage {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ----------------------------------------------------------------- legend */
+
+/* One style for the graph's legend and the matrix's: a size of its own, so
+   the matrix pane's smaller text does not shrink its legend. */
+.causal-graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15em 1.1em;
+  align-items: center;
+  padding: 0.5em 0.7em;
+  border-top: 1px solid #e4e7ea;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #444;
+}
+
+/* An author `display` beats what the hidden attribute does, so hiding a legend
+   has to be spelled out or both views' legends show at once. */
+.causal-graph-legend[hidden] {
+  display: none;
+}
+
+.causal-graph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.causal-graph-legend .cg-key {
+  display: inline-block;
+  width: 22px;
+  height: 13px;
+  flex: none;
+}
+
+.cg-key-deterministic {
+  border: 3px solid #4C72B0;
+  border-radius: 3px;
+  background: #fff;
+}
+
+.cg-key-intervention {
+  border: 1px solid #4C72B0;
+  border-radius: 3px;
+  background: #e8f3e8;
+}
+
+.cg-key-outcome {
+  border: 1px solid #4C72B0;
+  border-radius: 3px;
+  background: #eef3fa;
+}
+
+/* The query view's own keys: both query variables share one colour, since the
+   question does not care which is which. */
+.cg-key-query {
+  border: 2.5px solid #1f6feb;
+  border-radius: 3px;
+  background: #fff;
+}
+
+.cg-key-shared {
+  border: 2.5px solid #b06f00;
+  border-radius: 3px;
+  background: #fff;
+}
+
+.cg-key-via {
+  border: 2.5px solid #6c757d;
+  border-radius: 3px;
+  background: #fff;
+}
+
+/* Edge keys are drawn as a rule through the middle of the swatch. */
+.cg-key-causal,
+.cg-key-leg,
+.cg-key-correlated {
+  height: 13px;
+  position: relative;
+}
+
+.cg-key-causal::before,
+.cg-key-leg::before,
+.cg-key-correlated::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 0;
+  right: 0;
+  border-top: 2px solid #9aa0a6;
+}
+
+.cg-key-leg::before {
+  border-top-style: dotted;
+}
+
+.cg-key-correlated::before {
+  border-top-style: dashed;
+  border-top-color: #c44e52;
+}
+
+/* ------------------------------------------------------------- fullscreen */
+
+.causal-graph.cg-fullscreen {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #fbfbfc;
+}
+
+.causal-graph.cg-fullscreen .causal-graph-stage {
+  flex: 1;
+  height: auto;
+}
+
+/* The generated module tables. Column widths are left to the browser, as they
+   were when these were hand-written list-tables. */
+table.causal-graph-table {
+  width: 100%;
+}
+
+/* The one thing the browser gets wrong unaided: with the other columns holding
+   long bullet lists, it shrinks this one to its longest word -- 80px -- and
+   sets each module name one word per line. */
+table.causal-graph-table th:first-child,
+table.causal-graph-table td:first-child {
+  min-width: 9em;
+}
+
+
+table.causal-graph-table th,
+table.causal-graph-table td {
+  vertical-align: top;
+}
+
+table.causal-graph-table ul {
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+/* ------------------------------------------------------- query panel */
+
+.causal-graph-panel {
+  padding: 0.6em 0.8em;
+  border-bottom: 1px solid #e4e7ea;
+  font-size: 0.85em;
+  background: #f7f9fc;
+}
+
+.causal-graph-panel .cg-hint {
+  display: block;
+  color: #555;
+}
+
+.causal-graph-panel .cg-panel-pair {
+  font-weight: bold;
+  font-size: 1.05em;
+}
+
+.causal-graph-panel .cg-panel-body {
+  margin: 0.4em 0;
+}
+
+.causal-graph-panel .cg-fact {
+  display: block;
+  margin: 0.15em 0;
+}
+
+.causal-graph-panel .cg-good { color: #2f7d32; }
+.causal-graph-panel .cg-bad { color: #b3261e; }
+
+.causal-graph-panel .cg-note {
+  display: block;
+  margin-top: 0.3em;
+  color: #777;
+  font-style: italic;
+}
+
+.causal-graph-panel .cg-panel-actions button {
+  font-size: inherit;
+  margin-right: 0.4em;
+  padding: 0.15em 0.5em;
+}
+
+.causal-graph-controls button.cg-active {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
+}
+
+.causal-graph-panel .cg-panel-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  align-items: center;
+  margin-bottom: 0.4em;
+}
+
+.causal-graph-panel .cg-pick-label {
+  color: #555;
+}
+
+.causal-graph-panel select {
+  font-size: inherit;
+  max-width: 17em;
+}
+
+/* Hover explanation, floating over the stage rather than sitting in the panel:
+   what a link stands for belongs next to the link. pointer-events:none so it
+   cannot come between the pointer and what it is describing. */
+.causal-graph .cg-tip {
+  position: absolute;
+  z-index: 30;
+  box-sizing: border-box;     /* its measured width is set back on it as is */
+  max-width: 24em;
+  padding: 0.3em 0.5em;
+  border-radius: 3px;
+  background: rgba(28, 33, 40, 0.93);
+  color: #fff;
+  font-size: 0.82em;
+  line-height: 1.35;
+  pointer-events: none;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.3);
+}
+
+.causal-graph .cg-tip[hidden] {
+  display: none;
+}
+
+/* The whole-window page (the standalone page in _static, or the page the
+   CLI serves), which holds one graph
+   and nothing else. The stage takes the leftover height; min-height:0 is what
+   stops it from pushing the legend off the bottom. */
+body.cg-standalone {
+  margin: 0;
+  background: #fff;
+}
+
+body.cg-standalone .causal-graph {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+body.cg-standalone .causal-graph-stage {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+/* ----------------------------------------------------------------- banner */
+
+/* What is wrong with the graph, at the top of a served page. */
+.cg-banner {
+  margin: 0;
+  padding: 0.5em 0.9em;
+  font-family: Lato, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+               Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  border-bottom: 1px solid #e4e7ea;
+}
+
+.cg-banner-error {
+  background: #fdecea;
+  color: #7a1d16;
+}
+
+.cg-banner-warn {
+  background: #fff6d8;
+  color: #5c4300;
+}
+
+.cg-banner pre {
+  margin: 0.4em 0 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+
+.cg-banner ul {
+  margin: 0.3em 0 0;
+  padding-left: 1.4em;
+}
+
+/* ----------------------------------------------------------------- matrix */
+
+/* The adjacency matrix beside the graph. Rows are causes, columns effects,
+   both in a causal order, so a cell below the diagonal is a cycle among
+   collapsed groups and everything else sits above it. */
+.cg-matrix {
+  flex: 0 0 46%;
+  max-width: 46%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid #e4e7ea;
+  background: #fff;
+  font-size: 11px;
+  --mx-cell: 14px;
+}
+
+.cg-matrix[hidden] {
+  display: none;
+}
+
+/* The table scrolls in here; the pane's own legend stays put below. */
+.cg-matrix-scroll {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cg-matrix .causal-graph-legend {
+  flex: none;
+  border-top: 1px solid #e4e7ea;
+}
+
+/* Stated for the matrix's own tooltip: it is inside a scrolling pane, so it
+   is positioned in that pane's coordinates, and it holds several lines. */
+.cg-matrix .cg-tip {
+  white-space: pre-line;
+  text-align: left;
+}
+
+/* Separate borders, deliberately: with collapsed ones the table paints every
+   border at the cell's laid-out place, so a sticky header's text would follow
+   the scroll while its border and colour strip stayed behind. Each cell draws
+   its own right and bottom border instead, and the strips are inset shadows,
+   which a cell carries with it. */
+table.cg-mx {
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 6px 8px 8px 6px;
+}
+
+table.cg-mx th,
+table.cg-mx td {
+  padding: 0;
+  border: 0;
+  border-right: 1px solid #eceff2;
+  border-bottom: 1px solid #eceff2;
+  font-weight: normal;
+}
+
+/* Column headers stand on end. */
+table.cg-mx th.cg-mx-col {
+  height: 9.5em;
+  vertical-align: bottom;
+  padding-top: 3px;
+  box-shadow: inset 0 3px 0 var(--strip, transparent);
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+table.cg-mx th.cg-mx-col span {
+  display: inline-block;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  max-height: 9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 0;
+  line-height: var(--mx-cell);
+  width: var(--mx-cell);
+  font-size: min(11px, calc(var(--mx-cell) * 0.95));
+}
+
+table.cg-mx th.cg-mx-corner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  background: #fff;
+  vertical-align: bottom;
+  text-align: right;
+  color: #777;
+  font-size: 10px;
+  padding: 0 4px 2px 0;
+  white-space: nowrap;
+}
+
+/* Header text shrinks with the cells, so a hundred rows still read as rows
+   rather than as overprinted lines. */
+table.cg-mx th.cg-mx-row {
+  text-align: right;
+  padding: 0 6px 0 7px;
+  white-space: nowrap;
+  max-width: 15em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: inset 3px 0 0 var(--strip, transparent);
+  background: #fff;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  line-height: var(--mx-cell);
+  font-size: min(11px, calc(var(--mx-cell) * 0.95));
+}
+
+table.cg-mx td.cg-mx-cell {
+  width: var(--mx-cell);
+  min-width: var(--mx-cell);
+  height: var(--mx-cell);
+  text-align: center;
+  font-size: calc(var(--mx-cell) * 0.62);
+  line-height: var(--mx-cell);
+  color: #fff;
+}
+
+/* Direct edges: one hue, deeper with more variable-level edges behind it. */
+table.cg-mx td.cg-mx-direct {
+  background: rgba(31, 111, 235, var(--mx-a, 0.8));
+}
+
+/* In the answer matrix, a leg standing for routes through hidden variables. */
+table.cg-mx td.cg-mx-leg {
+  background: rgba(42, 157, 143, var(--mx-a, 0.8));
+}
+
+/* A causal path but no direct edge: present, but faint. */
+table.cg-mx td.cg-mx-reach {
+  background: #dce5f3;
+}
+
+table.cg-mx td.cg-mx-corr {
+  outline: 2px dashed #c44e52;
+  outline-offset: -2px;
+}
+
+table.cg-mx td.cg-mx-diag {
+  background: repeating-linear-gradient(45deg, #eef0f3, #eef0f3 2px, #fff 2px, #fff 4px);
+}
+
+/* Block boundaries between top-level groups, drawn by the last cell of the
+   block before each one. */
+table.cg-mx .cg-mx-break {
+  border-right: 2px solid #9aa0a6;
+}
+
+table.cg-mx tr.cg-mx-rbreak th,
+table.cg-mx tr.cg-mx-rbreak td {
+  border-bottom: 2px solid #9aa0a6;
+}
+
+/* Marginal totals. */
+table.cg-mx .cg-mx-sum {
+  color: #666;
+  font-size: 10px;
+  padding: 0 4px;
+  text-align: center;
+  background: #fafbfc;
+  line-height: var(--mx-cell);
+}
+
+table.cg-mx th.cg-mx-sum {
+  position: sticky;
+  background: #fafbfc;
+}
+
+table.cg-mx thead th.cg-mx-sum {
+  top: 0;
+  vertical-align: bottom;
+  z-index: 2;
+}
+
+table.cg-mx tr.cg-mx-sums th.cg-mx-sum {
+  left: 0;
+  text-align: right;
+  z-index: 1;
+}
+
+/* A cell a click does something with: ask about a pair, or open a leg. */
+table.cg-mx td.cg-mx-clickable {
+  cursor: pointer;
+}
+
+/* What just changed. New rows and columns fade in and their headers are lit
+   for a moment, as a revealed group is on the diagram; a cell that stayed
+   but changed state is outlined for the same moment. */
+@keyframes cg-mx-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+table.cg-mx .cg-mx-new {
+  animation: cg-mx-in 350ms ease-out;
+}
+
+table.cg-mx th.cg-mx-row,
+table.cg-mx th.cg-mx-col {
+  transition: background-color 400ms ease-out;
+}
+
+table.cg-mx th.cg-mx-new {
+  background-color: #fff6d8;
+}
+
+table.cg-mx td.cg-mx-changed {
+  outline: 2px solid #d9a300;
+  outline-offset: -2px;
+}
+
+/* Hover: the row and column headers of what the pointer is on, and the cell. */
+table.cg-mx th.cg-mx-hl {
+  background: #fff3cd;
+  color: #000;
+}
+
+table.cg-mx td.cg-mx-hl {
+  outline: 2px solid #1f6feb;
+  outline-offset: -2px;
+}
+
+/* A picked node: its row and column stay lit, the rest of the cells fade. */
+table.cg-mx th.cg-mx-picked {
+  background: #fff3cd;
+  font-weight: bold;
+}
+
+table.cg-mx.cg-mx-focus td.cg-mx-cell:not(.cg-mx-inline) {
+  opacity: 0.22;
+}
+
+/* Legend keys for the matrix, bordered swatches like the graph's. */
+.cg-key-mx-direct,
+.cg-key-mx-reach,
+.cg-key-mx-leg,
+.cg-key-mx-corr {
+  border: 1px solid #c8cdd4;
+  border-radius: 3px;
+}
+
+.cg-key-mx-direct {
+  background: rgba(31, 111, 235, 0.85);
+}
+
+.cg-key-mx-reach {
+  background: #dce5f3;
+}
+
+.cg-key-mx-leg {
+  background: rgba(42, 157, 143, 0.85);
+}
+
+.cg-key-mx-corr {
+  border: 2px dashed #c44e52;
+  background: #fff;
+}
+
+.causal-graph-legend .cg-legend-note {
+  color: #777;
+  font-style: italic;
+}

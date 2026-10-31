@@ -1,0 +1,193 @@
+# Pre-eclampsia and eclampsia: the real-world causal diagram.
+#
+# Transcribed from the "Real world" half of preeclampsia_causal_diagrams.drawio.
+# The two dashed boxes in that diagram are the two groups here, and the
+# variables outside the boxes (care-seeking propensity, delivery location and
+# the outcomes) are left ungrouped, as the diagram draws them.
+#
+# The same clinical state appears in both phases as two variables, one per
+# phase, with an edge from the earlier to the later one. The labels repeat the
+# diagram's wording; the viewer adds the phase to a label wherever that is
+# needed to tell the two apart.
+#
+# The diagram does not say which variables are deterministic functions of
+# their causes, which are observed, or what documents specify them, so those
+# keys are left at their defaults here.
+
+level_labels: [phase]
+
+groups:
+  - name: before_arrival
+    label: Before delivery location arrival
+    contains:
+      - pre_eclampsia_risk_factors
+      - early_anc_attendance
+      - pre_eclampsia_risk_screening
+      - low_dose_aspirin
+      - pre_eclampsia_before_arrival
+      - symptomatic_pre_eclampsia_before_arrival
+      - severe_pre_eclampsia_before_arrival
+      - pre_eclampsia_testing_before_arrival
+      - diagnosed_pre_eclampsia_before_arrival
+      - magnesium_sulfate_prevention_before_arrival
+      - eclampsia_before_arrival
+  - name: at_delivery_location
+    label: At delivery location
+    contains:
+      - pre_eclampsia_at_delivery
+      - symptomatic_pre_eclampsia_at_delivery
+      - severe_pre_eclampsia_at_delivery
+      - pre_eclampsia_testing_at_delivery
+      - diagnosed_pre_eclampsia_at_delivery
+      - magnesium_sulfate_prevention_at_delivery
+      - eclampsia_at_delivery
+      - magnesium_sulfate_treatment
+      - continued_seizures
+
+nodes:
+  # ---- cross-cutting ----
+  - name: care_seeking_propensity
+    label: Care-seeking propensity
+
+  # ---- before delivery location arrival ----
+  - name: pre_eclampsia_risk_factors
+    label: Pre-eclampsia risk factors
+  - name: early_anc_attendance
+    label: Early antenatal care attendance
+    caused_by:
+      - care_seeking_propensity
+  - name: pre_eclampsia_risk_screening
+    label: Pre-eclampsia risk screening
+    caused_by:
+      - early_anc_attendance
+  - name: low_dose_aspirin
+    label: Low-dose aspirin
+    caused_by:
+      - pre_eclampsia_risk_screening
+      - pre_eclampsia_risk_factors
+      - care_seeking_propensity
+  - name: pre_eclampsia_before_arrival
+    label: Pre-eclampsia
+    caused_by:
+      - pre_eclampsia_risk_factors
+      - low_dose_aspirin
+  - name: symptomatic_pre_eclampsia_before_arrival
+    label: Symptomatic pre-eclampsia
+    caused_by:
+      - pre_eclampsia_before_arrival
+      - pre_eclampsia_risk_factors
+  - name: severe_pre_eclampsia_before_arrival
+    label: Pre-eclampsia with severe features
+    caused_by:
+      - pre_eclampsia_before_arrival
+      - pre_eclampsia_risk_factors
+  - name: pre_eclampsia_testing_before_arrival
+    label: Pre-eclampsia testing
+    caused_by:
+      - care_seeking_propensity
+  - name: diagnosed_pre_eclampsia_before_arrival
+    label: Diagnosed pre-eclampsia
+    caused_by:
+      - pre_eclampsia_before_arrival
+      - pre_eclampsia_testing_before_arrival
+      - symptomatic_pre_eclampsia_before_arrival
+      - care_seeking_propensity
+  - name: magnesium_sulfate_prevention_before_arrival
+    label: Magnesium sulfate for eclampsia prevention
+    caused_by:
+      - diagnosed_pre_eclampsia_before_arrival
+      - severe_pre_eclampsia_before_arrival
+  - name: eclampsia_before_arrival
+    label: Eclampsia
+    caused_by:
+      - pre_eclampsia_before_arrival
+      - magnesium_sulfate_prevention_before_arrival
+      - severe_pre_eclampsia_before_arrival
+
+  # ---- the transition between the phases ----
+  - name: delivery_location
+    label: Delivery location
+    caused_by:
+      - eclampsia_before_arrival
+      - diagnosed_pre_eclampsia_before_arrival
+      - symptomatic_pre_eclampsia_before_arrival
+      - severe_pre_eclampsia_before_arrival
+      - care_seeking_propensity
+
+  # ---- at delivery location ----
+  - name: pre_eclampsia_at_delivery
+    label: Pre-eclampsia
+    caused_by:
+      - pre_eclampsia_before_arrival
+  - name: symptomatic_pre_eclampsia_at_delivery
+    label: Symptomatic pre-eclampsia
+    caused_by:
+      - symptomatic_pre_eclampsia_before_arrival
+      - pre_eclampsia_at_delivery
+  - name: severe_pre_eclampsia_at_delivery
+    label: Pre-eclampsia with severe features
+    caused_by:
+      - severe_pre_eclampsia_before_arrival
+      - pre_eclampsia_at_delivery
+  - name: pre_eclampsia_testing_at_delivery
+    label: Pre-eclampsia testing
+    caused_by:
+      - delivery_location
+  - name: diagnosed_pre_eclampsia_at_delivery
+    label: Diagnosed pre-eclampsia
+    caused_by:
+      - diagnosed_pre_eclampsia_before_arrival
+      - delivery_location
+      - pre_eclampsia_at_delivery
+      - pre_eclampsia_testing_at_delivery
+      - symptomatic_pre_eclampsia_at_delivery
+  - name: magnesium_sulfate_prevention_at_delivery
+    label: Magnesium sulfate for eclampsia prevention
+    caused_by:
+      - magnesium_sulfate_prevention_before_arrival
+      - delivery_location
+      - diagnosed_pre_eclampsia_at_delivery
+      - severe_pre_eclampsia_at_delivery
+  - name: eclampsia_at_delivery
+    label: Eclampsia
+    caused_by:
+      - eclampsia_before_arrival
+      - pre_eclampsia_at_delivery
+      - magnesium_sulfate_prevention_at_delivery
+      - severe_pre_eclampsia_at_delivery
+  - name: magnesium_sulfate_treatment
+    label: Magnesium sulfate for treatment
+    caused_by:
+      - delivery_location
+      - eclampsia_at_delivery
+  - name: continued_seizures
+    label: Continued seizures
+    caused_by:
+      - eclampsia_at_delivery
+      - magnesium_sulfate_treatment
+
+  # ---- outcomes ----
+  - name: pre_eclampsia_eclampsia_death
+    label: Pre-eclampsia/eclampsia death
+    caused_by:
+      - pre_eclampsia_at_delivery
+      - eclampsia_at_delivery
+      - continued_seizures
+      - severe_pre_eclampsia_at_delivery
+  - name: fetal_death
+    label: Fetal death
+    caused_by:
+      - pre_eclampsia_at_delivery
+      - severe_pre_eclampsia_at_delivery
+      - pre_eclampsia_eclampsia_death
+  - name: duration_of_pregnancy
+    label: Duration of pregnancy
+    caused_by:
+      - pre_eclampsia_at_delivery
+      - eclampsia_at_delivery
+      - severe_pre_eclampsia_at_delivery
+      - care_seeking_propensity
+  - name: neonatal_death
+    label: Neonatal death
+    caused_by:
+      - duration_of_pregnancy

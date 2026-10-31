@@ -1,0 +1,76 @@
+# Pre-eclampsia and eclampsia: the causal diagram of the model.
+#
+# Transcribed from the "Model" half of preeclampsia_causal_diagrams.drawio.
+# That diagram draws no boxes, so there are no groups here. Groups can be
+# added later by listing them under `groups`, each with what it `contains`.
+#
+# The diagram does not say which variables are deterministic functions of
+# their causes, which are observed, or what documents specify them, so those
+# keys are left at their defaults here.
+#
+# Edges the diagram does not draw, in case they are omissions rather than
+# modelling decisions: risk factors -> pre-eclampsia, pre-eclampsia or severe
+# features -> eclampsia, and duration of pregnancy -> neonatal death. The
+# real-world diagram has all three. Neonatal death has no edges at all here.
+
+groups: []
+
+nodes:
+  - name: pre_eclampsia_risk_factors
+    label: Pre-eclampsia risk factors
+  - name: care_seeking_propensity
+    label: Care-seeking propensity
+  - name: early_anc_attendance
+    label: Early antenatal care attendance
+    caused_by:
+      - care_seeking_propensity
+  - name: pre_eclampsia_risk_screening
+    label: Pre-eclampsia risk screening
+    caused_by:
+      - early_anc_attendance
+  - name: low_dose_aspirin
+    label: Low-dose aspirin
+    caused_by:
+      - pre_eclampsia_risk_factors
+      - pre_eclampsia_risk_screening
+  - name: pre_eclampsia
+    label: Pre-eclampsia
+    caused_by:
+      - low_dose_aspirin
+  - name: severe_pre_eclampsia
+    label: Pre-eclampsia with severe features
+    caused_by:
+      - pre_eclampsia
+  - name: diagnosed_pre_eclampsia
+    label: Diagnosed pre-eclampsia
+    caused_by:
+      - pre_eclampsia
+      - severe_pre_eclampsia
+  - name: magnesium_sulfate_prevention
+    label: Magnesium sulfate for eclampsia prevention
+    caused_by:
+      - diagnosed_pre_eclampsia
+      - severe_pre_eclampsia
+  - name: eclampsia
+    label: Eclampsia
+    caused_by:
+      - magnesium_sulfate_prevention
+  - name: pre_eclampsia_eclampsia_death
+    label: Pre-eclampsia/eclampsia death
+    caused_by:
+      - pre_eclampsia
+      - severe_pre_eclampsia
+      - eclampsia
+  - name: fetal_death
+    label: Fetal death
+    caused_by:
+      - pre_eclampsia
+      - severe_pre_eclampsia
+  - name: duration_of_pregnancy
+    label: Duration of pregnancy
+    caused_by:
+      - pre_eclampsia
+      - severe_pre_eclampsia
+      - eclampsia
+  - name: neonatal_death
+    label: Neonatal death
