@@ -27,12 +27,7 @@ try:
 except ImportError:  # pragma: no cover
     sync_playwright = None
 
-# The MNCNH graph lives in the vivarium_research repository. The tests that
-# use it look for a checkout beside this one, or at $CAUSALWEB_MNCNH.
-MNCNH = Path(os.environ.get(
-    "CAUSALWEB_MNCNH",
-    Path(__file__).resolve().parents[2] / "vivarium_research/docs/source/models"
-    "/concept_models/vivarium_mncnh_portfolio/causal_graph.yaml"))
+NESTED = Path(__file__).resolve().parent / "nested.yaml"
 
 SMALL = """
 level_labels: [phase]
@@ -313,25 +308,27 @@ class ViewerTests(unittest.TestCase):
         page.wait_for_function(count % 1, timeout=60000)
         page.close()
 
-    @unittest.skipUnless(MNCNH.is_file(), "MNCNH graph not present")
-    def test_mncnh_matrix_is_upper_triangular_at_every_level(self):
-        server = GraphServer(MNCNH, port=0, quiet=True)
-        server.start()
-        try:
-            page = self.open(server.url)
-            self.click(page, "Matrix")
-            for preset in ("By component", "By module", "Every variable"):
-                self.click(page, preset)
-                st = self.state(page)
-                pos = {b: i for i, b in enumerate(st["order"])}
-                for s, t in st["direct"]:
-                    self.assertLess(pos[s], pos[t], (preset, s, t))
-            self.assertEqual(len(st["direct"]), 208)
-            self.assertEqual(self.errors, [])
-            page.close()
-        finally:
-            server.stop()
-
+    def test_nested_matrix_at_every_level(self):
+        # Every scope in tests/nested.yaml lists its members out of causal order.
+        page = self.open_graph(NESTED)
+        self.click(page, "Matrix")
+        expected = {
+            "By stage": ["g:early", "x", "g:late"],
+            "By step": ["g:early_one", "e_mid", "g:early_two", "x",
+                        "g:late_one", "g:late_two"],
+            "Every variable": ["e1a", "e1b", "e_mid", "e2a", "e2b", "x",
+                               "l1a", "l1b", "l2b", "l2a"],
+        }
+        for preset, order in expected.items():
+            self.click(page, preset)
+            st = self.state(page)
+            self.assertEqual(st["order"], order, preset)
+            pos = {b: i for i, b in enumerate(st["order"])}
+            for s, t in st["direct"]:
+                self.assertLess(pos[s], pos[t], (preset, s, t))
+        self.assertEqual(len(st["direct"]), 11)
+        self.assertEqual(self.errors, [])
+        page.close()
 
     def test_cyclic_collapse_is_flagged(self):
         path = Path(self.tmp.name) / "cyclic.yaml"

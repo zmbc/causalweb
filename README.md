@@ -74,10 +74,7 @@ the variable's label among the outputs. The extension adds its assets to
     playwright install chromium
     python -m unittest discover -s tests
 
-The browser tests skip themselves when Chromium cannot start. Two tests use
-the MNCNH graph from the `vivarium_research` repository. They look for a
-checkout beside this one, or at the path in `CAUSALWEB_MNCNH`, and skip
-when it is absent.
+The browser tests skip themselves when Chromium cannot start.
 
 ## License
 

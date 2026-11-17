@@ -1,0 +1,44 @@
+# A two-level graph whose file order disagrees with its causal order.
+#
+# Each scope lists its members with effects before causes. The roots list
+# `late` before `early`. The variables appear in the file with the groups
+# interleaved, and `l2b` in `late` has no causes and comes first. So the file
+# order and a plain topological order both give a wrong matrix. The matrix must
+# reorder every scope by its causal order. It must also keep the rows of each
+# group together and keep every edge above the diagonal at every level.
+
+level_labels: [stage, step]
+
+groups:
+  - name: late
+    contains: [late_two, late_one]
+  - name: early
+    contains: [early_two, e_mid, early_one]
+  - name: late_one
+    contains: [l1b, l1a]
+  - name: late_two
+    contains: [l2a, l2b]
+  - name: early_one
+    contains: [e1b, e1a]
+  - name: early_two
+    contains: [e2b, e2a]
+
+nodes:
+  - name: l2b
+  - name: l2a
+    caused_by: [l1b, x, l2b]
+  - name: e1b
+    caused_by: [e1a]
+  - name: l1b
+    caused_by: [l1a]
+  - name: e1a
+  - name: x
+    caused_by: [e2b]
+  - name: e2b
+    caused_by: [e2a, e_mid]
+  - name: l1a
+    caused_by: [e2b]
+  - name: e_mid
+    caused_by: [e1b]
+  - name: e2a
+    caused_by: [e1a]
