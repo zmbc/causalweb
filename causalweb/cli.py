@@ -85,7 +85,7 @@ def cmd_matrix(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="causalweb",
-        description="Hierarchical causal graphs for simulation models, from YAML.",
+        description="Hierarchical causal graphs, from YAML.",
     )
     sub = p.add_subparsers(dest="command", required=True)
 

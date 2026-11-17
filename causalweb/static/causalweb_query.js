@@ -135,8 +135,8 @@ window.CausalGraphQuery = (function () {
    * with no parents is a constant and is likewise determined. */
   function determined(m, Z) {
     /* Constants are fixed whether or not anything was conditioned on. A
-     * variable held at one value across every simulant has nothing to vary
-     * with, so it blocks paths through it and can never confound. */
+     * variable held at one value has nothing to vary with, so it blocks paths
+     * through it and can never confound. */
     var fixed = setOf(Z);
     keys(m.held || {}).forEach(function (v) { fixed[v] = true; });
     var changed = true;
@@ -264,7 +264,7 @@ window.CausalGraphQuery = (function () {
   }
 
   /* A correlation has no node of its own, so it is stood in for by the two
-   * propensities it joins: the dependence then sits between them, which is
+   * variables it joins: the dependence then sits between them, which is
    * where it actually is, and it is drawn as the declared edge it is. */
   function drawable(m, causes, x, y) {
     var out = [];
@@ -528,8 +528,8 @@ window.CausalGraphQuery = (function () {
       var f = nearestForks(m, projection, a, b);
       if (f.latentOnly) {
         /* No observed fork explains this pair: the dependence bottoms out in a
-         * correlated-propensity draw. Reveal the two propensities that draw
-         * shares instead, so the irreducible `<->` ends up between them --
+         * declared correlation. Reveal the two variables that correlation
+         * joins instead, so the irreducible `<->` ends up between them --
          * where it actually is -- rather than floating between two distant
          * variables with nothing to account for it. */
         var pair = [];

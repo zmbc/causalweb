@@ -1,4 +1,4 @@
-"""Hierarchical causal graphs for simulation models.
+"""Hierarchical causal graphs for models of real-world processes.
 
 A graph is written in YAML (schema in ``causalweb.model``), validated on
 load, and shown in the browser at any level of its group hierarchy, with

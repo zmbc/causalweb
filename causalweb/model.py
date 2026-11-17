@@ -40,10 +40,9 @@ Keys on a variable only:
     Its direct causes, defaulting to none. Named for the causal direction rather
     than ``parents``, which would read as containment next to ``contains``.
 ``deterministic``
-    True when the variable is an exact function of its causes. Default False,
-    meaning it consumes a random draw that is not represented as a cause. This is
-    what lets d-separation account for determinism: fixing a deterministic
-    variable's causes fixes the variable.
+    True when the variable is an exact function of its causes. Default False.
+    When a context fixes every cause of a deterministic variable, the viewer
+    treats that variable as fixed too.
 ``kind``
     Optional: ``intervention`` or ``outcome``. Each is drawn with a fill of its
     own. An outcome also counts among its group's outputs in the tables whether
@@ -78,8 +77,8 @@ def default_label(name: str) -> str:
     """The label a node gets when it does not state one.
 
     Underscores to spaces and a capital at the front, which is right for most
-    names. It cannot produce an acronym, so anything with ANC, LBWSG, IFA/MMS,
-    YLDs and the like still says what it wants.
+    names. It cannot produce an acronym, so a name that contains an acronym
+    needs a ``label``.
     """
     spaced = str(name).replace("_", " ")
     return spaced[:1].upper() + spaced[1:]

@@ -3,11 +3,11 @@
 Provides two directives:
 
   .. causal-graph:: path/to/graph.yaml
-     :group: pregnancy          # optional: restrict to one subtree
+     :group: some_group         # optional: restrict to one subtree
      :collapse: 1               # optional: aggregate to this hierarchy depth
      :height: 700px
 
-  .. causal-graph-table:: pregnancy
+  .. causal-graph-table:: some_group
      :file: path/to/graph.yaml
 
 The graph is validated whenever it is loaded (acyclicity, dangling references,
@@ -28,9 +28,8 @@ two keys of its own from a group's or variable's ``data`` mapping:
     mapping to override the link text, or a list of either. A module table's
     "Nested subcomponents" column is the union over its variables', in
     ``contains`` order, deduplicated. Several variables citing one document is
-    the normal case, and one variable citing several is too -- a risk-effect
-    document describes an edge, so it belongs on the variable the effect is
-    applied to.
+    the normal case, and one variable citing several is too. A document that
+    describes an edge belongs on the variable that the edge points to.
 ``categories``
     On a variable only: the categories it takes, as a list of strings, if it
     is categorical. A module table lists them after the variable's label in
@@ -102,9 +101,8 @@ def subcomponents_of(graph, group: str) -> list:
     """The documents this group's variables cite, deduplicated.
 
     A variable names the document that specifies it, and a module's list is
-    the union over its variables. Several variables citing one document is
-    the normal case -- a cause model specifies its own mortality at both
-    neonatal ages -- and one variable citing several is too.
+    the union over its variables. Several variables can cite one document,
+    and one variable can cite several.
     """
     out, seen = [], set()
     for name in graph.nodes_in(group):

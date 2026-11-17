@@ -1,13 +1,13 @@
 /* Interactive causal graph viewer.
  *
- * Progressive enhancement: each .causal-graph container ships with a static
- * placeholder. We only build the widget once Cytoscape has actually loaded,
- * so a CDN failure leaves a readable diagram rather than an empty box.
+ * Each .causal-graph container holds the graph as JSON and a legend. The
+ * widget is built only once Cytoscape has loaded. If the scripts fail to load,
+ * the container shows the legend and nothing else.
  *
  * Hierarchy is shown by containment: an open group is a labelled box holding its
  * members. Containment is used rather than colour because colour only separates
- * a handful of categories, and this model has twenty groups. Colour is therefore
- * reserved for the top-level group alone.
+ * a handful of categories, and a graph can have many more groups than that.
+ * Colour is therefore reserved for the top-level group alone.
  */
 (function () {
   "use strict";
@@ -47,10 +47,10 @@
     'stroke-linecap="round"/></svg>'
   );
 
-  /* Group names and variable names are separate namespaces in the YAML, but share
-   * one id space in Cytoscape -- and compound layout needs a group and its members
-   * present at the same time. (This model has a `postpartum_depression` group AND
-   * variable.) So group ids are prefixed on the way in. */
+  /* A group and a variable can have the same name. Validation reports that as a
+   * problem, but the graph still loads. Cytoscape has one id space, and compound
+   * layout needs a group and its members present at the same time. So group ids
+   * are prefixed on the way in. */
   function G(name) { return "g:" + name; }
   function isGroupId(id) { return id.slice(0, 2) === "g:"; }
   function groupName(id) { return id.slice(2); }
