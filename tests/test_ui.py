@@ -155,21 +155,17 @@ class ViewerTests(unittest.TestCase):
         st = self.state(page)
         self.assertEqual(st["nodes"], ["a", "b", "c", "d", "e", "x"])
         self.assertEqual(st["boxes"], 3)
-        self.assertFalse(st["matrix"])
+        self.assertTrue(st["matrix"])
 
         self.click(page, "By phase")
         st = self.state(page)
         self.assertEqual(st["nodes"], ["g:early", "g:late", "x"])
         self.assertEqual(st["hash"], "#open=")
-
-        self.click(page, "Matrix")
-        st = self.state(page)
         self.assertTrue(st["matrix"])
         # x causes d, which is in `late`, so x sits between the two groups
         self.assertEqual(st["order"], ["g:early", "x", "g:late"])
         self.assertEqual(sorted(st["direct"]), [["g:early", "g:late"], ["x", "g:late"]])
         self.assertEqual(st["corr"], 2)
-        self.assertIn("mx=1", st["hash"])
 
         self.click(page, "Every variable")
         st = self.state(page)
@@ -201,7 +197,6 @@ class ViewerTests(unittest.TestCase):
 
     def test_state_survives_reload(self):
         page = self.open()
-        self.click(page, "Matrix")
         self.click(page, "By phase")
         before = self.state(page)
         page.reload()
@@ -214,7 +209,6 @@ class ViewerTests(unittest.TestCase):
 
     def test_matrix_hover_and_click(self):
         page = self.open()
-        self.click(page, "Matrix")
         page.hover('td[data-s="a"][data-t="b"]')
         time.sleep(0.2)
         # both buckets' row and column headers light up
@@ -312,7 +306,6 @@ class ViewerTests(unittest.TestCase):
     def test_nested_matrix_at_every_level(self):
         # Every scope in tests/nested.yaml lists its members out of causal order.
         page = self.open_graph(NESTED)
-        self.click(page, "Matrix")
         expected = {
             "By stage": ["g:early", "x", "g:late"],
             "By step": ["g:early_one", "e_mid", "g:early_two", "x",
@@ -335,7 +328,6 @@ class ViewerTests(unittest.TestCase):
         path = Path(self.tmp.name) / "cyclic.yaml"
         path.write_text(CYCLIC, encoding="utf-8")
         page = self.open_graph(path)
-        self.click(page, "Matrix")
         self.click(page, "Level 1")
         mx = page.evaluate(
             "(() => { var mx = document.querySelector('.causal-graph')._matrixForTest;"

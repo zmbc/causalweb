@@ -55,8 +55,7 @@
   background: #f0f3f7;
 }
 
-/* The stage holds the graph's area and, when it is switched on, the matrix
-   pane beside it. */
+/* The stage holds the graph's area and the matrix pane beside it. */
 .causal-graph-stage {
   position: relative;
   display: flex;
@@ -414,10 +413,6 @@ body.cg-standalone .causal-graph-stage {
   background: #fff;
   font-size: 11px;
   --mx-cell: 14px;
-}
-
-.cg-matrix[hidden] {
-  display: none;
 }
 
 /* The table scrolls in here; the pane's own legend stays put below. */

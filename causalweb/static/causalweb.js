@@ -775,7 +775,6 @@
         state.cx = cx;
       }
     }
-    state.mx = hashParam("mx") === "1";
     return state;
   }
 
@@ -863,10 +862,7 @@
     var reset = control("button", { type: "button" }, "Reset view");
     var full = control("button", { type: "button", title: "Fullscreen" }, "Fullscreen");
     var newTab = control("button", { type: "button", title: "Open in a new tab" }, "New tab");
-    var mxBtn = control("button",
-      { type: "button", title: "Show the adjacency matrix beside the graph" },
-      "Matrix");
-    [presetBar, queryBtn, mxBtn, reset, full, newTab]
+    [presetBar, queryBtn, reset, full, newTab]
       .forEach(function (el) { bar.appendChild(el); });
     // nothing to open from the whole-window page: it is already that page
     if (!container.getAttribute("data-standalone")) newTab.hidden = true;
@@ -878,8 +874,8 @@
     // the layout takes, which reads as a flicker on every click.
     var stage = control("div", { class: "causal-graph-stage" });
     // The graph's own column: its canvases, with its legend under them. The
-    // matrix pane is a column of the same shape beside it when it is on, so
-    // each side's legend sits under its own picture.
+    // matrix pane is a column of the same shape beside it, so each side's
+    // legend sits under its own picture.
     var graphCol = control("div", { class: "cg-graph" });
     var canvasesWrap = control("div", { class: "cg-canvases" });
     var canvases = [
@@ -894,7 +890,6 @@
     graphCol.appendChild(canvasesWrap);
     stage.appendChild(graphCol);
     var mxPane = control("div", { class: "cg-matrix" });
-    mxPane.hidden = true;
     // The table scrolls inside this; the pane's legend sits below it, still.
     var mxScroll = control("div", { class: "cg-matrix-scroll" });
     mxPane.appendChild(mxScroll);
@@ -981,8 +976,8 @@
                   // selected context, or null for "any"
                   context: null };
 
-    /* Matrix state: whether the pane is shown, and the last computed matrix. */
-    var matrix = { on: false, current: null };
+    /* Matrix state: the matrix on screen, and what the previous one showed. */
+    var matrix = { current: null, last: null };
 
     /* Panning when the drag starts on a node.
      *
@@ -2078,8 +2073,6 @@
     mxScroll.appendChild(mxTip);
     var mxTable = null;
 
-    function matrixVisible() { return matrix.on; }
-
     function cellKey(s, t) { return s + "\0" + t; }
 
     function cssQuote(value) {
@@ -2150,17 +2143,13 @@
      * rows and columns that appeared fade in with their headers lit, and
      * cells among the rows that stayed, whose state changed, are outlined. */
     function renderMatrix(continuous) {
-      var show = matrixVisible();
       var answer = !!(query.showing && query.answer);
-      mxPane.hidden = !show;
-      matrixLegend.hidden = !show || answer;
-      matrixAnswerLegend.hidden = !show || !answer;
-      container.classList.toggle("cg-with-matrix", show);
+      matrixLegend.hidden = answer;
+      matrixAnswerLegend.hidden = !answer;
       if (mxTable) { mxScroll.removeChild(mxTable); mxTable = null; }
       mxTip.hidden = true;
       matrix.current = null;
       container._matrixForTest = null;
-      if (!show) { matrix.last = null; return; }
       var mx = answer ? computeAnswerMatrix() : computeMatrix(data, open, labelOf);
       matrix.current = mx;
       var was = matrix.last;         // what the matrix showed before this one
@@ -2464,13 +2453,6 @@
         if (node.length) toggleHighlight(node);
       }
     });
-    mxBtn.addEventListener("click", function () {
-      matrix.on = !matrix.on;
-      mxBtn.classList.toggle("cg-active", matrix.on);
-      renderMatrix();
-      saveState();
-    });
-
     /* ---- view state in the fragment (whole-window page only) ---- */
 
     function saveState() {
@@ -2483,7 +2465,6 @@
         if (opened.length) parts.push("x=" + opened.map(encodeURIComponent).join(","));
       }
       if (query.context) parts.push("cx=" + encodeURIComponent(query.context));
-      if (matrix.on) parts.push("mx=1");
       var hash = "#" + parts.join("&");
       if (window.location.hash !== hash && window.history &&
           window.history.replaceState) {
@@ -2504,10 +2485,6 @@
         // Legs opened before the reload, restored as they were.
         state.x.forEach(function (id) { query.extra[id] = true; });
         renderPanel();
-      }
-      if (state.mx) {
-        matrix.on = true;
-        mxBtn.classList.add("cg-active");
       }
     }
 
