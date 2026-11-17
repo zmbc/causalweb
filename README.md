@@ -32,10 +32,6 @@ Cytoscape and ELK from a CDN in the browser.
 `serve` listens on port 8765, or the next free port when that one is taken.
 An explicit `--port` is strict. `--port 0` takes any free port.
 
-Two example graphs are in `examples/`. Try
-
-    causalweb serve examples/preeclampsia_real_world.yaml
-
 ## The YAML schema
 
 The schema is documented in [causalweb/model.py](causalweb/model.py).
