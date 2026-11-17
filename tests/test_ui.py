@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _path  # noqa: E402,F401
 
+from causalweb.page import STATIC_DIR  # noqa: E402
 from causalweb.server import GraphServer  # noqa: E402
 
 try:
@@ -345,6 +346,64 @@ class ViewerTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
         page.close()
 
+    def test_adjustment_functions(self):
+        # causalweb_adjustment.js is not on the page, so the test loads it.
+        page = self.open()
+        page.add_script_tag(path=str(STATIC_DIR / "causalweb_adjustment.js"))
+        result = page.evaluate("""(() => {
+          var Q = window.CausalGraphQuery, A = window.CausalGraphAdjustment;
+          function model(nodes, edges, det) {
+            return Q.build({
+              nodes: nodes.map(id => ({id: id, label: id,
+                                       deterministic: (det || []).includes(id)})),
+              edges: edges.map(e => ({source: e[0], target: e[1]})),
+            });
+          }
+          var chain = model(["a", "b", "c"], [["a", "b"], ["b", "c"]]);
+          var collider = model(["a", "b", "c"], [["a", "c"], ["b", "c"]]);
+          var fork = ["q", "p", "x", "y"], forkEdges = [["q", "p"], ["p", "x"], ["p", "y"]];
+          var backdoor = model(["z", "x", "y"], [["z", "x"], ["x", "y"], ["z", "y"]]);
+
+          // analyze() tests for a common cause without conditioning. It must
+          // agree with the back-door test given the empty set.
+          var data = JSON.parse(
+            document.querySelector("script.causal-graph-data").textContent);
+          var ids = data.nodes.map(n => n.id), mismatches = [], confounded = 0;
+          ids.forEach(a => ids.forEach(b => {
+            if (a === b) return;
+            var ans = Q.analyze(data, a, b);
+            if (ans.confounded) confounded += 1;
+            if (ans.confounded !== A.confounded(ans.model, ans.from, ans.to, []))
+              mismatches.push([a, b]);
+          }));
+          return {
+            chain: A.dSeparated(chain, ["a"], ["c"], []),
+            chainGivenMiddle: A.dSeparated(chain, ["a"], ["c"], ["b"]),
+            collider: A.dSeparated(collider, ["a"], ["b"], []),
+            colliderGivenChild: A.dSeparated(collider, ["a"], ["b"], ["c"]),
+            randomFork: A.dSeparated(model(fork, forkEdges), ["x"], ["y"], ["q"]),
+            deterministicFork: A.dSeparated(model(fork, forkEdges, ["p"]),
+                                            ["x"], ["y"], ["q"]),
+            backdoor: A.confounded(backdoor, "x", "y", []),
+            backdoorGivenZ: A.confounded(backdoor, "x", "y", ["z"]),
+            pairs: ids.length * (ids.length - 1),
+            confounded: confounded,
+            mismatches: mismatches,
+          };
+        })()""")
+        pairs, confounded = result.pop("pairs"), result.pop("confounded")
+        self.assertEqual(result, {
+            "chain": False, "chainGivenMiddle": True,
+            "collider": True, "colliderGivenChild": False,
+            # fixing q fixes p only when p is an exact function of q
+            "randomFork": False, "deterministicFork": True,
+            "backdoor": True, "backdoorGivenZ": False,
+            "mismatches": [],
+        })
+        self.assertGreater(confounded, 0)
+        self.assertLess(confounded, pairs)
+        self.assertEqual(self.errors, [])
+        page.close()
 
 if __name__ == "__main__":
     unittest.main()

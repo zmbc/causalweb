@@ -1,5 +1,6 @@
-/* Causal queries over the graph: D-separation, confounding, adjustment sets
- * and latent projection.
+/* Causal queries over the graph, as the viewer asks them: whether one of two
+ * variables causes the other, the causes they share, the latent projection
+ * onto them, and what each projected edge stands for.
  *
  * Everything here runs on the FULL variable-level graph, regardless of which
  * groups happen to be open on screen. A group-level edge does not mean every
@@ -7,23 +8,12 @@
  * collapsed view is for navigation only and must never be the basis of an
  * answer.
  *
- * TWO THINGS THAT MAKE THIS A SIMULATION RATHER THAN A STUDY:
+ * A declared correlation becomes a latent parent of the two variables. Path
+ * tracing then treats the correlation as a common cause.
  *
- * 1. Every variable is observed. There is no measurement problem, so an
- *    adjustment set may contain anything that is not a descendant of the
- *    cause. The correlated propensities are still drawn as a shared latent,
- *    because that is what their joint draw amounts to and it is what makes
- *    path-tracing come out right -- but the latent itself is not a simulation
- *    variable, so it cannot be conditioned on. Its *children* can: blocking a
- *    path through the correlation means conditioning on the other propensity,
- *    which is perfectly observable.
- *
- * 2. Many variables are exact functions of their causes (`deterministic`).
- *    Conditioning on such a node's parents fixes the node too, which blocks
- *    paths that plain d-separation leaves open. So the tests below use
- *    D-separation: the conditioning set is first closed under determinism, and
- *    that closure is what blocks. Ignoring this would report confounding that
- *    cannot exist.
+ * Nothing here conditions on a set of variables. Conditioning, D-separation
+ * and back-door tests are in causalweb_adjustment.js, which the viewer does
+ * not use yet.
  */
 window.CausalGraphQuery = (function () {
   "use strict";
@@ -38,11 +28,10 @@ window.CausalGraphQuery = (function () {
   /* ---- model ---------------------------------------------------------- */
 
   function build(data) {
-    var parents = {}, children = {}, latent = {}, observable = [];
+    var parents = {}, children = {}, latent = {};
     data.nodes.forEach(function (n) {
       parents[n.id] = [];
       children[n.id] = [];
-      observable.push(n.id);
     });
     data.edges.forEach(function (e) {
       if (!parents[e.target] || !children[e.source]) return;
@@ -67,7 +56,7 @@ window.CausalGraphQuery = (function () {
       deterministic[n.id] = !!n.deterministic;
     });
     var m = { parents: parents, children: children, latent: latent,
-              observable: observable, label: label,
+              label: label,
               deterministic: deterministic,
               // correlations the graph declares, as "a>b" both ways round
               declared: declared,
@@ -152,51 +141,12 @@ window.CausalGraphQuery = (function () {
     return fixed;
   }
 
-  /* ---- D-separation, via the ancestral moral graph --------------------- */
-
-  /* Blocking uses the determinism closure of Z rather than Z itself. A node
-   * fixed by Z behaves exactly as if it had been conditioned on: it blocks
-   * non-colliders, and it opens colliders below it. Substituting the closure
-   * throughout is what turns d-separation into D-separation. */
-  function dSeparated(m, X, Y, Z) {
-    var D = determined(m, Z);
-    var cond = keys(D);
-    var A = ancestors(m, X.concat(Y).concat(cond));
-    var adj = {};
-    function link(a, b) {
-      (adj[a] = adj[a] || {})[b] = true;
-      (adj[b] = adj[b] || {})[a] = true;
-    }
-    keys(A).forEach(function (n) {
-      var ps = (m.parents[n] || []).filter(function (p) { return A[p]; });
-      ps.forEach(function (p) { link(p, n); });
-      // moralise: co-parents of a common child become adjacent
-      for (var i = 0; i < ps.length; i++) {
-        for (var j = i + 1; j < ps.length; j++) link(ps[i], ps[j]);
-      }
-    });
-    var target = setOf(Y);
-    var seen = {}, stack = [];
-    X.forEach(function (x) {
-      if (!D[x]) { seen[x] = true; stack.push(x); }
-    });
-    while (stack.length) {
-      var n = stack.pop();
-      if (target[n]) return false;
-      keys(adj[n] || {}).forEach(function (v) {
-        if (!seen[v] && !D[v]) { seen[v] = true; stack.push(v); }
-      });
-    }
-    return true;
-  }
-
   /* The model with x's outgoing edges removed, so nothing found in it can be
    * x's own influence on anything. */
   function withoutOutgoing(m, x) {
     var cut = {
       parents: {}, children: {}, latent: m.latent,
-      observable: m.observable, label: m.label,
-      deterministic: m.deterministic, held: m.held,
+      label: m.label, deterministic: m.deterministic, held: m.held,
     };
     keys(m.parents).forEach(function (n) { cut.parents[n] = m.parents[n].slice(); });
     keys(m.children).forEach(function (n) { cut.children[n] = m.children[n].slice(); });
@@ -205,11 +155,6 @@ window.CausalGraphQuery = (function () {
     });
     cut.children[x] = [];
     return cut;
-  }
-
-  /* Is there an open back-door path from x to y given Z? */
-  function confounded(m, x, y, Z) {
-    return !dSeparated(withoutOutgoing(m, x), [x], [y], Z || []);
   }
 
   /* ---- why: the variables upstream of both ---------------------------- */
@@ -617,7 +562,10 @@ window.CausalGraphQuery = (function () {
       // which one causes the other, or null when neither does
       causes: (forward || backward) ? [x, y] : null,
       hasDirectedPath: !!desc[y] && x !== y,
-      confounded: confounded(m, x, y, []),
+      /* With nothing conditioned on, a back-door path from x to y is open
+       * exactly when some variable is an ancestor of both, once x's outgoing
+       * edges are cut. `shared.all` lists those ancestors. */
+      confounded: shared.all.length > 0,
       shared: shared,
       // how many variables the naive "everything upstream" view would show
       relevantCount: keys(ancestors(m, [x, y])).length,
@@ -632,8 +580,7 @@ window.CausalGraphQuery = (function () {
     ancestors: ancestors,
     descendants: descendants,
     determined: determined,
-    dSeparated: dSeparated,
-    confounded: confounded,
+    withoutOutgoing: withoutOutgoing,
     sharedCauses: sharedCauses,
     legWaist: legWaist,
     closeUnexplained: closeUnexplained,
