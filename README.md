@@ -1,14 +1,17 @@
 # causalweb
 
-Hierarchical causal graphs for models of real-world processes: a YAML schema,
-an interactive viewer, a Sphinx extension and a live-reloading command line.
+> [!CAUTION]
+> This tool is an early prototype entirely implemented by AI.
 
-A graph is written once, at the level of individual variables, with the
-variables grouped into nested modules. The viewer shows it at any level of
-that hierarchy. Closed groups become single nodes whose edges summarise the
-edges of their members. The viewer also answers causal questions on the full
-graph (d-separation, confounding, shared causes, the latent projection onto a
-chosen set of variables) and shows the same graph as an adjacency matrix.
+A tool for authoring and exploring complex causal graphs.
+
+Graphs are written in a plain-text YAML format
+but can be viewed in real time, interactively, in a browser.
+The viewer shows both a node-link diagram and an adjacency matrix.
+
+To accommodate large graphs, the viewer supports summarization,
+which can both be specified by the author (in the form of hierarchically nested groups)
+and happen interactively through causal queries about the relationship between two variables.
 
 ## Install
 
@@ -35,15 +38,14 @@ Two example graphs are in `examples/`. Try
 
 ## The YAML schema
 
-The schema is documented in [causalweb/model.py](causalweb/model.py). In
-outline, a file has these top-level keys:
+The schema is documented in [causalweb/model.py](causalweb/model.py).
+A file has these top-level keys:
 
-- `level_labels`: names for the levels of the group hierarchy, outermost first.
-- `groups`: each with a `name`, a `label`, and `contains`, the names of the
-  groups and variables inside it, in display order.
 - `nodes`: the variables, each with a `name`, a `label`, `caused_by` (the
-  names of its direct causes), and optionally `deterministic: true`,
-  `kind: intervention` or `kind: outcome`, and `values`.
+  names of its direct causes), and optionally `deterministic: true` and
+  `kind: intervention` or `kind: outcome`.
+- `groups`: each with a `name`, a `label`, and `contains`, the names of the
+  groups and variables inside it.
 - `correlated`: pairs of variables that share an unmodelled common cause.
 - `contexts`: named settings in which some variables are `fixed` and some
   edges are `inactive_edges`. The viewer answers queries within a context.
@@ -64,10 +66,12 @@ problem.
        :file: path/to/graph.yaml
 
 `causal-graph` embeds the viewer. `causal-graph-table` lists a group's
-variables with their inputs, outputs and documentation. The documentation
-column reads `data.documentation_ref` from each variable, a key that only this
-extension knows about. The extension adds its assets to `html_static_path`
-itself.
+variables with their inputs, outputs and documentation. The table reads two
+keys from `data` that only this extension knows about: `documentation_ref`,
+the document specifying a group or variable, which it links to; and
+`categories`, the categories of a categorical variable, which it lists after
+the variable's label among the outputs. The extension adds its assets to
+`html_static_path` itself.
 
 ## Tests
 

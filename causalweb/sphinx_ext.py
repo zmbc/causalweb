@@ -21,7 +21,7 @@ Each graph also gets a whole-window page of its own in ``_static``, which the
 widget's "New tab" button links to.
 
 The YAML schema is documented in ``causalweb.model``. This extension reads
-one key of its own from a group's or variable's ``data`` mapping:
+two keys of its own from a group's or variable's ``data`` mapping:
 
 ``documentation_ref``
     The document specifying it: a ``:ref:`` target, or a ``{ref:, text:}``
@@ -31,6 +31,10 @@ one key of its own from a group's or variable's ``data`` mapping:
     the normal case, and one variable citing several is too -- a risk-effect
     document describes an edge, so it belongs on the variable the effect is
     applied to.
+``categories``
+    On a variable only: the categories it takes, as a list of strings, if it
+    is categorical. A module table lists them after the variable's label in
+    its "Outputs" column.
 
 Enable it with ``extensions = ["causalweb.sphinx_ext"]``. The viewer's CSS
 and JS ship inside this package and are added to ``html_static_path`` here, so
@@ -53,16 +57,32 @@ from .page import (CDN_SCRIPTS, LEGEND_HTML, STATIC_DIR, asset_fingerprint,
 logger = logging.getLogger(__name__)
 
 
+def _data_of(item: dict) -> dict:
+    data = item.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def _is_str_list(value) -> bool:
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
 def refs_of(item: dict) -> list:
     """The documents a group or variable cites, from ``data.documentation_ref``."""
-    data = item.get("data")
-    if not isinstance(data, dict):
-        return []
-    return _as_list(data.get("documentation_ref"))
+    return _as_list(_data_of(item).get("documentation_ref"))
 
 
-def ref_problems(graph) -> list[str]:
-    """What is wrong with the ``documentation_ref`` entries, if anything."""
+def categories_of(node: dict) -> list[str]:
+    """The categories a variable takes, from ``data.categories``.
+
+    Empty when there are none, or when they are malformed, which
+    ``data_problems`` reports.
+    """
+    categories = _data_of(node).get("categories")
+    return categories if _is_str_list(categories) else []
+
+
+def data_problems(graph) -> list[str]:
+    """What is wrong with this extension's keys in ``data``, if anything."""
     out = []
     for name, item in list(graph.groups.items()) + list(graph.nodes.items()):
         for entry in refs_of(item):
@@ -70,6 +90,11 @@ def ref_problems(graph) -> list[str]:
                 out.append(f"{name!r} has a documentation_ref mapping with no 'ref' key")
             elif not isinstance(entry, (dict, str)):
                 out.append(f"{name!r} has a malformed documentation_ref: {entry!r}")
+    for name, node in graph.nodes.items():
+        categories = _data_of(node).get("categories")
+        if categories is not None and not _is_str_list(categories):
+            out.append(f"{name!r} has categories {categories!r}, which is not "
+                       f"a list of strings")
     return out
 
 
@@ -107,7 +132,7 @@ class _GraphDirective(Directive):
             raise GraphError(f"graph file not found: {option}")
         graph = load_graph(path)
         env.note_dependency(str(path))
-        for problem in graph.problems + ref_problems(graph):
+        for problem in graph.problems + data_problems(graph):
             logger.warning("causal graph (%s): %s", path.name, problem,
                            location=(env.docname, self.lineno))
         return graph
@@ -209,8 +234,8 @@ class CausalGraphTableDirective(_GraphDirective):
                 name_cell += nodes.Text(info["label"])
             body += self._row([
                 name_cell,
-                self._bullets(graph.describe(n) for n in inputs),
-                self._bullets(graph.describe(n, with_values=True) for n in outputs),
+                self._bullets(graph.nodes[n]["label"] for n in inputs),
+                self._bullets(self._with_categories(graph.nodes[n]) for n in outputs),
                 self._bullets_refs(subcomponents_of(graph, child)),
             ])
         return [table]
@@ -223,6 +248,13 @@ class CausalGraphTableDirective(_GraphDirective):
             entry += cell
             row += entry
         return row
+
+    @staticmethod
+    def _with_categories(node):
+        categories = categories_of(node)
+        if not categories:
+            return node["label"]
+        return f"{node['label']} ({' | '.join(categories)})"
 
     @staticmethod
     def _bullets(labels):

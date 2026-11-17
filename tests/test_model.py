@@ -90,7 +90,8 @@ class ValidationTests(unittest.TestCase):
                                                 "data": {"anything": [1, 2]}}],
                    "nodes": [{"name": "a", "observed": True, "data": {"documentation_ref": "x"}},
                              {"name": "b", "documentation_ref": "y"},
-                             {"name": "c", "data": 5}],
+                             {"name": "c", "data": 5},
+                             {"name": "d", "values": ["p", "q"]}],
                    "contexts": [{"name": "k", "constant": ["a"]}]})
         joined = "\n".join(g.problems)
         self.assertIn("the graph has unknown key 'scenarios'", joined)
@@ -98,6 +99,8 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("node 'a' has unknown key 'observed'", joined)
         self.assertIn("node 'b' has unknown key 'documentation_ref'", joined)
         self.assertIn("node 'c' has data that is not a mapping", joined)
+        # categories belong to the Sphinx extension, in data
+        self.assertIn("node 'd' has unknown key 'values'", joined)
         self.assertIn("context 'k' has unknown key 'constant'", joined)
         # data itself is kept as written and never inspected
         self.assertEqual(g.nodes["a"]["data"], {"documentation_ref": "x"})

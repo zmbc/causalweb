@@ -32,7 +32,7 @@ Keys on a group or a variable:
 ``data``
     Optional mapping for anything a consumer of the graph wants to attach. The
     core does not read it or check what is in it. The Sphinx extension keeps its
-    ``documentation_ref`` there, for example.
+    own keys there; see ``causalweb.sphinx_ext``.
 
 Keys on a variable only:
 
@@ -48,8 +48,6 @@ Keys on a variable only:
     Optional: ``intervention`` or ``outcome``. Each is drawn with a fill of its
     own. An outcome also counts among its group's outputs in the tables whether
     or not anything downstream consumes it.
-``values``
-    Optional list of the values a categorical variable takes, shown in the tables.
 
 ``contexts`` name what the graph loses in a given context. ``fixed`` lists
 variables with no variation in it, which cannot confound anything and are cut
@@ -93,7 +91,7 @@ class GraphError(Exception):
 
 TOP_KEYS = {"level_labels", "groups", "nodes", "correlated", "contexts"}
 GROUP_KEYS = {"name", "label", "contains", "data"}
-NODE_KEYS = {"name", "label", "caused_by", "deterministic", "kind", "values", "data"}
+NODE_KEYS = {"name", "label", "caused_by", "deterministic", "kind", "data"}
 CONTEXT_KEYS = {"name", "label", "fixed", "inactive_edges"}
 
 
@@ -285,15 +283,6 @@ class CausalGraph:
                     f"node {name!r} has kind {kind!r}; it must be "
                     f"'intervention' or 'outcome'"
                 )
-            values = node.get("values")
-            if values is not None and not (
-                isinstance(values, list)
-                and all(isinstance(v, str) for v in values)
-            ):
-                self.problems.append(
-                    f"node {name!r} has values {values!r}, which is not a "
-                    f"list of strings"
-                )
 
         for pair in data.get("correlated") or []:
             if not (isinstance(pair, (list, tuple)) and len(pair) == 2):
@@ -400,13 +389,6 @@ class CausalGraph:
             out[parent].append(child)
         return out
 
-    def describe(self, name: str, with_values: bool = False) -> str:
-        node = self.nodes[name]
-        label = node["label"]
-        if with_values and node.get("values"):
-            return f"{label} ({' | '.join(node['values'])})"
-        return label
-
     def io_for(self, group: str) -> tuple[list[str], list[str]]:
         """Variables entering and leaving ``group``.
 
@@ -460,7 +442,6 @@ class CausalGraph:
                     "group": self.group_of.get(name),
                     "path": self.variable_path(name),
                     "deterministic": bool(n.get("deterministic")),
-                    "values": n.get("values"),
                     "kind": n.get("kind"),
                 }
                 for position, (name, n) in enumerate(self.nodes.items())
