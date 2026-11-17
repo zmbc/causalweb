@@ -9,6 +9,16 @@ Provides two directives:
 
   .. causal-graph-table:: some_group
      :file: path/to/graph.yaml
+     :group-header: Module             # optional: each header can be replaced
+     :inputs-header: Inputs
+     :outputs-header: Outputs
+     :documentation-header: Documentation
+
+The table has one row for each subgroup of the group. A group with no
+subgroups gets one row for itself. The columns are the
+subgroup, its inputs, its outputs, and its documentation. The first header
+defaults to the level label of the subgroups, or "Group" when there is no
+level label. The other headers default to the values shown above.
 
 The graph is validated whenever it is loaded (acyclicity, dangling references,
 unknown groups, duplicate names). Problems are reported as Sphinx warnings, which
@@ -25,8 +35,8 @@ two keys of its own from a group's or variable's ``data`` mapping:
 
 ``documentation_ref``
     The document specifying it: a ``:ref:`` target, or a ``{ref:, text:}``
-    mapping to override the link text, or a list of either. A module table's
-    "Nested subcomponents" column is the union over its variables', in
+    mapping to override the link text, or a list of either. The documentation
+    column of a table row is the union over the variables of that subgroup, in
     ``contains`` order, deduplicated. Several variables citing one document is
     the normal case, and one variable citing several is too. A document that
     describes an edge belongs on the variable that the edge points to.
@@ -97,7 +107,7 @@ def data_problems(graph) -> list[str]:
     return out
 
 
-def subcomponents_of(graph, group: str) -> list:
+def documentation_of(graph, group: str) -> list:
     """The documents this group's variables cite, deduplicated.
 
     A variable names the document that specifies it, and a module's list is
@@ -184,7 +194,13 @@ class CausalGraphTableDirective(_GraphDirective):
 
     has_content = False
     required_arguments = 1
-    option_spec = {"file": directives.unchanged}
+    option_spec = {
+        "file": directives.unchanged,
+        "group-header": directives.unchanged,
+        "inputs-header": directives.unchanged,
+        "outputs-header": directives.unchanged,
+        "documentation-header": directives.unchanged,
+    }
 
     def run(self):
         try:
@@ -201,10 +217,15 @@ class CausalGraphTableDirective(_GraphDirective):
         if not children:
             children = [group]
 
-        child_label = (graph.level_labels[graph.depth_of(children[0])]
-                       if graph.depth_of(children[0]) < len(graph.level_labels)
-                       else "Group")
-        headers = [child_label.capitalize(), "Inputs", "Outputs", "Nested subcomponents"]
+        level = graph.depth_of(children[0])
+        group_header = (graph.level_labels[level].capitalize()
+                        if level < len(graph.level_labels) else "Group")
+        headers = [
+            self.options.get("group-header", group_header),
+            self.options.get("inputs-header", "Inputs"),
+            self.options.get("outputs-header", "Outputs"),
+            self.options.get("documentation-header", "Documentation"),
+        ]
 
         table = nodes.table(classes=["causal-graph-table"])
         group_node = nodes.tgroup(cols=len(headers))
@@ -234,7 +255,7 @@ class CausalGraphTableDirective(_GraphDirective):
                 name_cell,
                 self._bullets(graph.nodes[n]["label"] for n in inputs),
                 self._bullets(self._with_categories(graph.nodes[n]) for n in outputs),
-                self._bullets_refs(subcomponents_of(graph, child)),
+                self._bullets_refs(documentation_of(graph, child)),
             ])
         return [table]
 

@@ -60,13 +60,23 @@ problem.
     .. causal-graph-table:: some_group
        :file: path/to/graph.yaml
 
-`causal-graph` embeds the viewer. `causal-graph-table` lists a group's
-variables with their inputs, outputs and documentation. The table reads two
+`causal-graph` embeds the viewer. `causal-graph-table` lists the subgroups of
+a group with their inputs, outputs and documentation. The table reads two
 keys from `data` that only this extension knows about: `documentation_ref`,
 the document specifying a group or variable, which it links to; and
 `categories`, the categories of a categorical variable, which it lists after
 the variable's label among the outputs. The extension adds its assets to
 `html_static_path` itself.
+
+The table headers default to the level label of the subgroups, "Inputs",
+"Outputs" and "Documentation". Each one has an option that replaces it:
+
+    .. causal-graph-table:: some_group
+       :file: path/to/graph.yaml
+       :group-header: Module
+       :inputs-header: Reads
+       :outputs-header: Writes
+       :documentation-header: Specification
 
 ## Tests
 
