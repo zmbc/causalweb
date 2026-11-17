@@ -24,7 +24,7 @@ Cytoscape and ELK from a CDN in the browser.
 ## Command line
 
     causalweb serve graph.yaml             # live view, reloads when the file changes
-    causalweb serve graph.yaml --collapse 1 --port 0 --open
+    causalweb serve graph.yaml --collapse 1 --port 0
     causalweb check graph.yaml             # validate; exit 1 on problems
     causalweb build graph.yaml -o out.html # one self-contained page
 

@@ -26,8 +26,7 @@ def _graph_or_exit(path: Path):
 def cmd_serve(args) -> int:
     from .server import serve
     return serve(args.file, group=args.group, collapse=args.collapse,
-                 host=args.host, port=args.port, open_browser=args.open,
-                 quiet=not args.verbose)
+                 host=args.host, port=args.port, quiet=not args.verbose)
 
 
 def cmd_check(args) -> int:
@@ -81,7 +80,6 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=None,
                    help="default: 8765, or the next free port above it; 0 picks any free port")
-    s.add_argument("--open", action="store_true", help="open the page in a browser")
     s.add_argument("--verbose", action="store_true", help="log every request")
     s.set_defaults(func=cmd_serve)
 

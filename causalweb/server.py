@@ -13,7 +13,6 @@ from __future__ import annotations
 import sys
 import threading
 import time
-import webbrowser
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -286,7 +285,7 @@ class GraphServer:
 
 def serve(path: Path, *, group: str | None = None, collapse: int | None = None,
           host: str = "127.0.0.1", port: int | None = None,
-          open_browser: bool = False, quiet: bool = False) -> int:
+          quiet: bool = False) -> int:
     """Serve ``path`` until interrupted. Returns a process exit code."""
     try:
         server = GraphServer(path, group=group, collapse=collapse, host=host,
@@ -303,7 +302,5 @@ def serve(path: Path, *, group: str | None = None, collapse: int | None = None,
         print(f"  the file did not load: {snap.error}", file=sys.stderr, flush=True)
     for problem in snap.problems:
         print(f"  problem: {problem}", file=sys.stderr, flush=True)
-    if open_browser:
-        webbrowser.open(server.url)
     server.serve_forever()
     return 0
