@@ -778,22 +778,6 @@
     return state;
   }
 
-  function requestFullscreen(el) {
-    var fn = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-    if (fn) fn.call(el);
-  }
-
-  function exitFullscreen() {
-    var fn = document.exitFullscreen || document.webkitExitFullscreen ||
-             document.msExitFullscreen;
-    if (fn) fn.call(document);
-  }
-
-  function fullscreenElement() {
-    return document.fullscreenElement || document.webkitFullscreenElement ||
-           document.msFullscreenElement || null;
-  }
-
   /* -------------------------------------------------------------------- init */
 
   function init(container) {
@@ -860,9 +844,8 @@
       { type: "button", title: "Check whether the relationship between two variables is confounded" },
       "Query");
     var reset = control("button", { type: "button" }, "Reset view");
-    var full = control("button", { type: "button", title: "Fullscreen" }, "Fullscreen");
     var newTab = control("button", { type: "button", title: "Open in a new tab" }, "New tab");
-    [presetBar, queryBtn, reset, full, newTab]
+    [presetBar, queryBtn, reset, newTab]
       .forEach(function (el) { bar.appendChild(el); });
     // nothing to open from the whole-window page: it is already that page
     if (!container.getAttribute("data-standalone")) newTab.hidden = true;
@@ -2501,24 +2484,10 @@
       clearHighlight();
       clampZoom();
     });
-    full.addEventListener("click", function () {
-      if (fullscreenElement() === container) exitFullscreen();
-      else requestFullscreen(container);
-    });
     newTab.addEventListener("click", function () {
       var url = standaloneUrl(container, open);
       if (url) window.open(url, "_blank");
     });
-
-    ["fullscreenchange", "webkitfullscreenchange", "msfullscreenchange"]
-      .forEach(function (evt) {
-        document.addEventListener(evt, function () {
-          var on = fullscreenElement() === container;
-          container.classList.toggle("cg-fullscreen", on);
-          full.textContent = on ? "Exit fullscreen" : "Fullscreen";
-          if (cy) { cy.resize(); clampZoom(); }
-        });
-      });
 
     restoreState(saved);
     draw();
