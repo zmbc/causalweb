@@ -161,7 +161,9 @@ def page_html(payload: str | None, *, collapse: int | None = None,
         scripts = []
         for name in ("causalweb_query.js", "causalweb.js"):
             js = (STATIC_DIR / name).read_text(encoding="utf-8")
-            scripts.append(f"<script>\n{js.replace('</script', '<\\/script')}\n</script>")
+            # "</script" inside the code would end the element early.
+            js = js.replace("</script", "<\\/script")
+            scripts.append(f"<script>\n{js}\n</script>")
         tail_assets = "\n".join(scripts)
     else:
         head_assets = (f'<link rel="stylesheet" '
