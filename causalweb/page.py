@@ -23,12 +23,9 @@ CDN_SCRIPTS = (
     # ELK rather than dagre: it is the only layout here that handles compound
     # (nested) nodes while still producing a layered, direction-respecting graph.
     "https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js",
-    # The cytoscape-elk adapter from cytoscape/cytoscape.js-elk pull request 52
-    # (opt-in ELK edge geometry, compound graphs included), pinned to the
-    # commit of its built bundle. Switch back to the npm release once the pull
-    # request is merged and published.
-    "https://cdn.jsdelivr.net/gh/zmbc/cytoscape.js-elk"
-    "@7629f55449e06888d091c909b60960803e0875f6/dist/cytoscape-elk.js",
+    # 2.4.0 is the first release with opt-in ELK edge geometry
+    # (useElkEdgeGeometry), which draws ELK's own edge routes.
+    "https://cdn.jsdelivr.net/npm/cytoscape-elk@2.4.0/dist/cytoscape-elk.js",
 )
 
 # Describes the visual encoding. Colour is used only for the top-level group a
