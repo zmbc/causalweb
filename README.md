@@ -17,7 +17,6 @@ and happen interactively through causal queries about the relationship between t
 
     pip install git+https://github.com/zmbc/causalweb.git
 
-For development, clone the repository and run `pip install -e .` in it.
 Python 3.9 or later and PyYAML are the only requirements. The viewer loads
 Cytoscape and ELK from a CDN in the browser.
 
@@ -77,14 +76,6 @@ The table headers default to the level label of the subgroups, "Inputs",
        :inputs-header: Reads
        :outputs-header: Writes
        :documentation-header: Specification
-
-## Tests
-
-    pip install -e ".[test]"
-    playwright install chromium
-    python -m unittest discover -s tests
-
-The browser tests skip themselves when Chromium cannot start.
 
 ## License
 
