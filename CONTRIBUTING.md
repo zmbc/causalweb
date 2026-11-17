@@ -30,13 +30,13 @@ Then download the Chromium build that Playwright uses:
 
 ## Run the tests
 
-    python -m unittest discover -s tests
+    pytest
 
 If you installed the libraries from conda-forge, point Chromium at them:
 
     LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
     FONTCONFIG_FILE="$CONDA_PREFIX/etc/fonts/fonts.conf" \
-        python -m unittest discover -s tests
+        pytest
 
 Without `FONTCONFIG_FILE`, Chromium can abort in its font code. The browser
 tests then fail with `TargetClosedError`.

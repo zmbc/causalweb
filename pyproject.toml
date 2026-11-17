@@ -28,3 +28,8 @@ include = ["causalweb*"]
 
 [tool.setuptools.package-data]
 causalweb = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# import the package from the source tree, installed or not
+pythonpath = ["."]
