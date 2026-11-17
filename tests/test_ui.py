@@ -73,6 +73,34 @@ nodes:
     caused_by: [b]
 """
 
+# Collapsed, g has two edges into h, so its matrix cell shows "2".
+DOUBLE = """
+groups:
+  - name: g
+    contains: [a, b]
+  - name: h
+    contains: [c]
+nodes:
+  - name: a
+  - name: b
+  - name: c
+    caused_by: [a, b]
+"""
+
+# The visible entries of the diagram's legend and the matrix's legend.
+LEGENDS = """(() => {
+  function entries(legend) {
+    if (!legend) return null;
+    return Array.from(legend.children).filter(s => !s.hidden).map(s =>
+      Array.from(s.childNodes).filter(n => n.nodeType === 3 || !n.hidden)
+        .map(n => n.textContent.trim()).filter(Boolean).join(" "));
+  }
+  return {
+    graph: entries(document.querySelector(".cg-graph .causal-graph-legend:not([hidden])")),
+    matrix: entries(document.querySelector(".cg-matrix .causal-graph-legend:not([hidden])")),
+  };
+})()"""
+
 READY = ("(() => { var c = document.querySelector('.causal-graph');"
          " return !!(c && c._cyForTest); })()")
 
@@ -321,6 +349,44 @@ class ViewerTests(unittest.TestCase):
             for s, t in st["direct"]:
                 self.assertLess(pos[s], pos[t], (preset, s, t))
         self.assertEqual(len(st["direct"]), 11)
+        self.assertEqual(self.errors, [])
+        page.close()
+
+    def test_legends_show_what_is_drawn(self):
+        page = self.open()
+        note = "matrix: rows cause columns, in causal order"
+        # every variable: no intervention, and every cell counts one edge
+        self.assertEqual(page.evaluate(LEGENDS), {
+            "graph": ["deterministic", "outcome", "causes", "correlated"],
+            "matrix": ["direct edge", "causal path, no direct edge", "correlated", note],
+        })
+        # the deterministic variable and the outcome are inside closed groups
+        self.click(page, "By phase")
+        self.assertEqual(page.evaluate(LEGENDS), {
+            "graph": ["causes", "correlated"],
+            "matrix": ["direct edge", "correlated", note],
+        })
+        # the answer for a and d: x -> d is an edge, a -> d runs through b and
+        # c, and nothing upstream moves both a and d
+        self.click(page, "Every variable")
+        page.click('td[data-s="a"][data-t="d"]')
+        self.ready(page)
+        self.assertEqual(page.evaluate(LEGENDS), {
+            "graph": ["query variables", "other variables", "causes directly",
+                      "causes through hidden variables", "correlated"],
+            "matrix": ["direct edge", "path through hidden variables",
+                       "shared upstream causes or a correlation",
+                       "matrix of the answer: rows cause columns; click a leg to open it"],
+        })
+        page.close()
+
+        path = Path(self.tmp.name) / "double.yaml"
+        path.write_text(DOUBLE, encoding="utf-8")
+        page = self.open_graph(path)
+        self.assertEqual(page.evaluate(LEGENDS)["matrix"], ["direct edge", note])
+        self.click(page, "Level 1")
+        self.assertEqual(page.evaluate(LEGENDS)["matrix"], [
+            "direct edge (a number counts the variable-level edges)", note])
         self.assertEqual(self.errors, [])
         page.close()
 

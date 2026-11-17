@@ -889,56 +889,88 @@
      * both at once would be showing one that does not apply. */
     var modelLegend = container.querySelector(".causal-graph-legend");
     if (modelLegend) graphCol.appendChild(modelLegend);
-    var queryLegend = control("div", { class: "causal-graph-legend" });
-    [["cg-key-query", "query variables"],
-     ["cg-key-shared", "confounder"],
-     ["cg-key-via", "other variables"],
-     ["cg-key-causal", "causes directly"],
-     ["cg-key-leg", "causes through hidden variables"],
-     ["cg-key-correlated", "correlated"]].forEach(function (k) {
-      var span = control("span", {});
-      span.appendChild(control("i", { class: "cg-key " + k[0] }));
-      span.appendChild(document.createTextNode(k[1]));
-      queryLegend.appendChild(span);
-    });
-    queryLegend.hidden = true;
+
+    /* A legend built here. Each entry is [key class, text], or [key class,
+     * text, count note]. A count note says what the numbers in the matrix
+     * mean, so it shows only when a cell has a number. */
+    function makeLegend(cls, entries, note) {
+      var el = control("div", { class: cls });
+      entries.forEach(function (k) {
+        var span = control("span", {});
+        span.appendChild(control("i", { class: "cg-key " + k[0] }));
+        span.appendChild(document.createTextNode(k[1]));
+        if (k[2]) span.appendChild(control("span", { class: "cg-legend-count" }, k[2]));
+        el.appendChild(span);
+      });
+      if (note) el.appendChild(control("span", { class: "cg-legend-note" }, note));
+      el.hidden = true;
+      return el;
+    }
+
+    var queryLegend = makeLegend("causal-graph-legend", [
+      ["cg-key-query", "query variables"],
+      ["cg-key-shared", "confounder"],
+      ["cg-key-via", "other variables"],
+      ["cg-key-causal", "causes directly"],
+      ["cg-key-leg", "causes through hidden variables"],
+      ["cg-key-correlated", "correlated"]]);
     graphCol.appendChild(queryLegend);
 
     /* The matrix's keys sit in the matrix pane, under the table. */
-    var matrixLegend = control("div", { class: "causal-graph-legend cg-matrix-legend" });
-    [["cg-key-mx-direct", "direct edge (a number counts the variable-level edges)"],
-     ["cg-key-mx-reach", "causal path, no direct edge"],
-     ["cg-key-mx-corr", "correlated"]].forEach(function (k) {
-      var span = control("span", {});
-      span.appendChild(control("i", { class: "cg-key " + k[0] }));
-      span.appendChild(document.createTextNode(k[1]));
-      matrixLegend.appendChild(span);
-    });
-    matrixLegend.appendChild(control("span", { class: "cg-legend-note" },
-      "matrix: rows cause columns, in causal order"));
-    matrixLegend.hidden = true;
+    var matrixLegend = makeLegend("causal-graph-legend cg-matrix-legend", [
+      ["cg-key-mx-direct", "direct edge", "(a number counts the variable-level edges)"],
+      ["cg-key-mx-reach", "causal path, no direct edge"],
+      ["cg-key-mx-corr", "correlated"]],
+      "matrix: rows cause columns, in causal order");
     mxPane.appendChild(matrixLegend);
 
     /* In the answer view the matrix is of the projection, so its cells mean
      * something else and get a legend of their own. */
-    var matrixAnswerLegend = control("div", { class: "causal-graph-legend cg-matrix-legend" });
-    [["cg-key-mx-direct", "direct edge"],
-     ["cg-key-mx-leg", "path through hidden variables (a number counts its independent routes)"],
-     ["cg-key-mx-reach", "reaches through the variables shown"],
-     ["cg-key-mx-corr", "shared upstream causes or a correlation"]].forEach(function (k) {
-      var span = control("span", {});
-      span.appendChild(control("i", { class: "cg-key " + k[0] }));
-      span.appendChild(document.createTextNode(k[1]));
-      matrixAnswerLegend.appendChild(span);
-    });
-    matrixAnswerLegend.appendChild(control("span", { class: "cg-legend-note" },
-      "matrix of the answer: rows cause columns; click a leg to open it"));
-    matrixAnswerLegend.hidden = true;
+    var matrixAnswerLegend = makeLegend("causal-graph-legend cg-matrix-legend", [
+      ["cg-key-mx-direct", "direct edge"],
+      ["cg-key-mx-leg", "path through hidden variables",
+       "(a number counts its independent routes)"],
+      ["cg-key-mx-reach", "reaches through the variables shown"],
+      ["cg-key-mx-corr", "shared upstream causes or a correlation"]],
+      "matrix of the answer: rows cause columns; click a leg to open it");
     mxPane.appendChild(matrixAnswerLegend);
 
-    function showLegendFor(answerView) {
-      queryLegend.hidden = !answerView;
-      if (modelLegend) modelLegend.hidden = !!answerView;
+    /* Show a legend when `on`, with only the entries whose key class is set
+     * in `present`. A legend left with no entries and no note is hidden. */
+    function fitLegend(el, on, present, numbered) {
+      if (!el) return;
+      var shown = 0;
+      Array.prototype.forEach.call(el.querySelectorAll("i.cg-key"), function (key) {
+        var drawn = Array.prototype.some.call(key.classList, function (c) {
+          return present[c];
+        });
+        key.parentNode.hidden = !drawn;
+        if (drawn) shown += 1;
+      });
+      Array.prototype.forEach.call(el.querySelectorAll(".cg-legend-count"),
+        function (count) { count.hidden = !numbered; });
+      el.hidden = !on || !(shown || el.querySelector(".cg-legend-note"));
+    }
+
+    var ROLE_KEY = { query: "cg-key-query", confounder: "cg-key-shared",
+                     via: "cg-key-via" };
+
+    /* The diagram's legends, fitted to the elements about to be drawn. */
+    function fitGraphLegends(els, answerView) {
+      var present = {};
+      els.forEach(function (el) {
+        var d = el.data;
+        if (d.source) {
+          present[d.kind === "correlated" ? "cg-key-correlated"
+                  : d.contracted ? "cg-key-leg" : "cg-key-causal"] = true;
+        } else if (!d.isBox) {
+          if (d.deterministic) present["cg-key-deterministic"] = true;
+          if (d.kind) present["cg-key-" + d.kind] = true;
+          if (d.role) present[ROLE_KEY[d.role]] = true;
+        }
+      });
+      fitLegend(modelLegend, !answerView, present);
+      fitLegend(queryLegend, answerView, present);
     }
 
     var cy = null;
@@ -1443,7 +1475,6 @@
       // The pointer is about to be over something else, or over nothing.
       tip.hidden = true;
       lastHover = null;
-      showLegendFor(query.showing && query.answer);
       saveState();
       /* One build at a time.
        *
@@ -1458,6 +1489,7 @@
       var showingAnswer = query.showing && query.answer;
       var els = showingAnswer ? projectionElements()
                               : buildElements(data, open, canNest());
+      fitGraphLegends(els, !!showingAnswer);
       // Decided here, from the element list, so that the matrix can mark what
       // is new under the same rule the diagram tweens by.
       var tween = shouldMorph(els, reveal);
@@ -2127,13 +2159,13 @@
      * cells among the rows that stayed, whose state changed, are outlined. */
     function renderMatrix(continuous) {
       var answer = !!(query.showing && query.answer);
-      matrixLegend.hidden = answer;
-      matrixAnswerLegend.hidden = !answer;
       if (mxTable) { mxScroll.removeChild(mxTable); mxTable = null; }
       mxTip.hidden = true;
       matrix.current = null;
       container._matrixForTest = null;
       var mx = answer ? computeAnswerMatrix() : computeMatrix(data, open, labelOf);
+      // The legend keys of the cells drawn, and whether any cell has a number.
+      var present = {}, numbered = false;
       matrix.current = mx;
       var was = matrix.last;         // what the matrix showed before this one
       var fresh = {}, cells = {}, kept = 0;
@@ -2223,15 +2255,24 @@
             td.classList.add("cg-mx-diag");
           } else if (mx.direct[k]) {
             var count = countOf(k);
+            var leg = !!(mx.contracted && mx.contracted[k]);
             td.classList.add("cg-mx-direct");
-            if (mx.contracted && mx.contracted[k]) td.classList.add("cg-mx-leg");
+            if (leg) td.classList.add("cg-mx-leg");
+            present[leg ? "cg-key-mx-leg" : "cg-key-mx-direct"] = true;
             var alpha = 0.45 + 0.55 * Math.log(1 + count) / Math.log(1 + maxCount);
             td.style.setProperty("--mx-a", alpha.toFixed(2));
-            if (count > 1 && cell >= 12) td.textContent = String(count);
+            if (count > 1 && cell >= 12) {
+              td.textContent = String(count);
+              numbered = true;
+            }
           } else if (mx.reach[k]) {
             td.classList.add("cg-mx-reach");
+            present["cg-key-mx-reach"] = true;
           }
-          if (mx.correlated[k]) td.classList.add("cg-mx-corr");
+          if (mx.correlated[k]) {
+            td.classList.add("cg-mx-corr");
+            present["cg-key-mx-corr"] = true;
+          }
           if (clickable(s, t)) td.classList.add("cg-mx-clickable");
           tr.appendChild(td);
         });
@@ -2248,6 +2289,8 @@
       table.appendChild(tbody);
       mxScroll.appendChild(table);
       mxTable = table;
+      fitLegend(matrixLegend, !answer, present, numbered);
+      fitLegend(matrixAnswerLegend, answer, present, numbered);
       var rows = {};
       mx.order.forEach(function (b) { rows[b] = true; });
       matrix.last = { rows: rows, cells: cells };

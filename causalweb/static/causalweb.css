@@ -136,6 +136,11 @@
   gap: 0.4em;
 }
 
+/* The same holds for an entry the viewer hides. */
+.causal-graph-legend span[hidden] {
+  display: none;
+}
+
 .causal-graph-legend .cg-key {
   display: inline-block;
   width: 22px;
