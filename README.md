@@ -27,7 +27,6 @@ Cytoscape and ELK from a CDN in the browser.
     causalweb serve graph.yaml --collapse 1 --port 0 --open
     causalweb check graph.yaml             # validate; exit 1 on problems
     causalweb build graph.yaml -o out.html # one self-contained page
-    causalweb matrix graph.yaml --depth 1  # adjacency matrix in the terminal
 
 `serve` listens on port 8765, or the next free port when that one is taken.
 An explicit `--port` is strict. `--port 0` takes any free port.

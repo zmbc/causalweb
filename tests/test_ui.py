@@ -62,6 +62,21 @@ correlated:
   - [a, x]
 """
 
+# Collapsed, g and h cause each other: a -> b -> c with b in h, a and c in g.
+CYCLIC = """
+groups:
+  - name: g
+    contains: [a, c]
+  - name: h
+    contains: [b]
+nodes:
+  - name: a
+  - name: b
+    caused_by: [a]
+  - name: c
+    caused_by: [b]
+"""
+
 READY = ("(() => { var c = document.querySelector('.causal-graph');"
          " return !!(c && c._cyForTest); })()")
 
@@ -104,6 +119,13 @@ class ViewerTests(unittest.TestCase):
         page.goto(url or self.server.url)
         self.ready(page)
         return page
+
+    def open_graph(self, path):
+        """Serve another graph file for one test, and open it."""
+        server = GraphServer(path, port=0, quiet=True)
+        server.start()
+        self.addCleanup(server.stop)
+        return self.open(server.url)
 
     def ready(self, page):
         page.wait_for_function(READY, timeout=60000)
@@ -309,6 +331,22 @@ class ViewerTests(unittest.TestCase):
             page.close()
         finally:
             server.stop()
+
+
+    def test_cyclic_collapse_is_flagged(self):
+        path = Path(self.tmp.name) / "cyclic.yaml"
+        path.write_text(CYCLIC, encoding="utf-8")
+        page = self.open_graph(path)
+        self.click(page, "Matrix")
+        self.click(page, "Level 1")
+        mx = page.evaluate(
+            "(() => { var mx = document.querySelector('.causal-graph')._matrixForTest;"
+            " return {order: mx.order, cyclic: mx.cyclic}; })()")
+        self.assertTrue(mx["cyclic"])
+        self.assertEqual(sorted(mx["order"]), ["g:g", "g:h"])
+        self.assertEqual(sorted(self.state(page)["direct"]), [["g:g", "g:h"], ["g:h", "g:g"]])
+        self.assertEqual(self.errors, [])
+        page.close()
 
 
 if __name__ == "__main__":

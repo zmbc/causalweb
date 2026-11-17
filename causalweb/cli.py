@@ -3,7 +3,6 @@
     causalweb serve graph.yaml          show it in the browser, reloading on change
     causalweb check graph.yaml          validate and list problems
     causalweb build graph.yaml -o x.html  write a self-contained page
-    causalweb matrix graph.yaml         print the adjacency matrix
 """
 
 from __future__ import annotations
@@ -67,21 +66,6 @@ def cmd_build(args) -> int:
     return 0
 
 
-def cmd_matrix(args) -> int:
-    graph = _graph_or_exit(args.file)
-    if args.group and args.group not in graph.groups:
-        print(f"causalweb: unknown group {args.group!r}", file=sys.stderr)
-        return 2
-    mx = graph.matrix(depth=args.depth, group=args.group)
-    print(mx.render_text(width=args.width))
-    print()
-    print("rows cause columns; a number counts variable-level edges, "
-          "· marks a causal path with no direct edge, ~ a correlated pair")
-    if mx.cyclic:
-        print("note: the collapsed graph has a cycle, so some edges sit below the diagonal")
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="causalweb",
@@ -113,13 +97,6 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--title")
     b.set_defaults(func=cmd_build)
 
-    m = sub.add_parser("matrix", help="print the adjacency matrix")
-    m.add_argument("file", type=Path)
-    m.add_argument("--depth", type=int, metavar="DEPTH",
-                   help="collapse groups deeper than this (default: every variable)")
-    m.add_argument("--group", help="only this group's subtree")
-    m.add_argument("--width", type=int, default=36, help="label column width")
-    m.set_defaults(func=cmd_matrix)
     return p
 
 

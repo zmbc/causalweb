@@ -8,7 +8,7 @@ documentation. ``causalweb.cli`` serves one from the command line with live
 reloading.
 """
 
-from .model import CausalGraph, GraphError, Matrix, load_graph
+from .model import CausalGraph, GraphError, load_graph
 
 __version__ = "0.1.0"
-__all__ = ["CausalGraph", "GraphError", "Matrix", "load_graph", "__version__"]
+__all__ = ["CausalGraph", "GraphError", "load_graph", "__version__"]
