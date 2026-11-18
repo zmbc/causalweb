@@ -102,7 +102,7 @@ nodes:
     caused_by: [u]
 """
 
-# a causes d through b and through c, two routes that share no variable.
+# a causes d through b and through c, two legs whose routes share no variable.
 ROUTES = """
 nodes:
   - name: a
@@ -567,14 +567,23 @@ def click_node(page, node_id):
     ready(page)
 
 
-def test_routes_of_one_arrow_share_its_tooltip(viewer, tmp_path):
+def test_each_leg_is_an_arrow_of_its_own(viewer, tmp_path):
     path = tmp_path / "routes.yaml"
     path.write_text(ROUTES, encoding="utf-8")
     page = viewer.open_graph(path)
     filter_to(page, ["a", "d"])
-    tip = page.evaluate(
-        "document.querySelector('.causal-graph')._edgesForTest.tip('la>d')")
-    assert tip == "via B\nand via C"
+    assert_routed(page)
+    tips = page.evaluate("""(() => {
+      var c = document.querySelector('.causal-graph');
+      return c._cyForTest.edges('[contracted = 1]').map(e => c._edgesForTest.tip(e.id())).sort();
+    })()""")
+    assert tips == ["via B", "via C"]
+    # hovering the cell lights both
+    page.hover('td[data-s="a"][data-t="d"]')
+    time.sleep(0.2)
+    hovered = page.evaluate(
+        "document.querySelector('.causal-graph')._cyForTest.edges('.hovered').length")
+    assert hovered == 2
     assert viewer.errors == []
     page.close()
 

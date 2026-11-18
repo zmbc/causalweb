@@ -285,9 +285,8 @@
   /* The picture of the summary `s` (see summarize in causalweb_query.js): its
    * visible variables, each drawn as itself or inside the closed group that
    * holds it, and its edges between them. Two shown nodes are joined by at
-   * most one edge of each kind: a direct edge, an edge through hidden
-   * variables, and a <->. Each edge lists the summary's edges behind it in
-   * `parts`.
+   * most one direct edge and one <->, and by an edge for each leg. Each edge
+   * lists the summary's edges behind it in `parts`.
    *
    * `nested` draws open groups as compound boxes. It requires a layout that
    * understands compound nodes: without one, boxes have no computed size and
@@ -347,13 +346,19 @@
       seen[G(name)] = true;
     });
 
-    var edges = {}, order = [], edgeKeys = [];
+    var edges = {}, order = [], edgeKeys = [], legsOf = {};
     elements(s).forEach(function (e) {
       var a = bucketFor(data, e.source, open), b = bucketFor(data, e.target, open);
       if (a === b) return;
       var prefix = e.kind === "solid" ? "e" : e.kind === "leg" ? "l" : "c";
       // a <-> is one edge whichever way round; it is turned below
       var key = prefix === "c" && b < a ? prefix + b + ">" + a : prefix + a + ">" + b;
+      // each leg is an arrow of its own: its routes share no variable with
+      // another leg's
+      if (prefix === "l") {
+        legsOf[key] = (legsOf[key] || 0) + 1;
+        if (legsOf[key] > 1) key += "#" + legsOf[key];
+      }
       if (!edges[key]) {
         edges[key] = { id: key, source: a, target: b,
                        kind: prefix === "c" ? "correlated" : "causal",
@@ -1259,19 +1264,15 @@
       return partsText(target.data("parts") || []);
     }
 
-    /* The tooltips of the summary's edges behind a drawn edge or a matrix
-     * cell, each once, at most PARTS_SHOWN of them. */
-    var PARTS_SHOWN = 3;
-
+    /* The tooltip of a drawn edge: what the summary's edges behind it stand
+     * for, each once. A leg or a <-> is drawn as an edge of its own, and only
+     * those have something to say. */
     function partsText(ids) {
       var texts = [];
       ids.forEach(function (id) {
         var el = summaryElement(id), text = el ? noteFor(el).text : "";
         if (text && texts.indexOf(text) < 0) texts.push(text);
       });
-      // Legs between one pair are routes of one arrow, all of them taken.
-      texts = texts.map(function (t, i) { return i ? "and " + t : t; });
-      if (texts.length > PARTS_SHOWN) texts = texts.slice(0, PARTS_SHOWN).concat(["…"]);
       return texts.join("\n");
     }
 
@@ -2363,16 +2364,22 @@
         function (el) { el.classList.add("cg-mx-inline"); });
     }
 
-    /* Hover from the matrix, shown on the diagram. */
-    function cyHover(ids, edgeIds) {
+    /* Hover from the matrix, shown on the diagram: the nodes `ids`, and with
+     * a pair, every arrow from the first to the second and any <-> between
+     * them. */
+    function cyHover(ids, pair) {
       if (!cy || cy.destroyed()) return;
       cy.elements().removeClass("hovered");
       ids.forEach(function (id) {
         if (id) cy.getElementById(id).addClass("hovered");
       });
-      (edgeIds || []).forEach(function (id) {
-        cy.getElementById(id).addClass("hovered");
-      });
+      if (!pair) return;
+      var s = pair[0], t = pair[1];
+      cy.edges().filter(function (e) {
+        var a = e.data("source"), b = e.data("target");
+        return a === s && b === t ||
+               e.data("kind") === "correlated" && a === t && b === s;
+      }).addClass("hovered");
     }
 
     /* A cell's tooltip names the pair, "X to Y", the row first, and then
@@ -2419,26 +2426,23 @@
       if (hit.td) {
         var s = hit.td.getAttribute("data-s"), t = hit.td.getAttribute("data-t");
         mxMark(s, t);
-        var edges = s === t ? [] : ["e", "l", "c"].map(function (p) {
-          return p + s + ">" + t;
-        }).concat(["c" + t + ">" + s]);
-        cyHover([s, t], edges);
+        cyHover([s, t], s === t ? null : [s, t]);
         showMxTip(mxTipText(s, t, mx), evt);
       } else if (hit.th) {
         var b = hit.th.getAttribute("data-b");
         mxMark(b, null);
-        cyHover([b], []);
+        cyHover([b]);
         var what = isGroupId(b) ? " (" + mx.members[b].length + " variables)" : "";
         showMxTip(mx.labels[b] + what, evt);
       } else {
         mxClear();
-        cyHover([], []);
+        cyHover([]);
         tip.hidden = true;
       }
     });
     mxPane.addEventListener("mouseleave", function () {
       mxClear();
-      cyHover([], []);
+      cyHover([]);
       tip.hidden = true;
     });
     /* A cell that stands for something hidden opens up, as its edge on the
