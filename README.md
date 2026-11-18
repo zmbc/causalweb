@@ -11,7 +11,10 @@ The viewer shows both a node-link diagram and an adjacency matrix.
 
 To accommodate large graphs, the viewer supports summarization,
 which can both be specified by the author (in the form of hierarchically nested groups)
-and happen interactively through causal queries about the relationship between two variables.
+and happen interactively, by filtering the graph to some of its variables.
+The filtered graph keeps every relationship among the variables shown:
+edges through hidden variables are dotted, and hidden common causes become correlations.
+Clicking such an edge reveals a hidden variable on it.
 
 ## Install
 
@@ -42,7 +45,8 @@ A file has these top-level keys:
   groups and variables inside it.
 - `correlated`: pairs of variables that share an unmodelled common cause.
 - `contexts`: named settings in which some variables are `fixed` and some
-  edges are `inactive_edges`. The viewer answers queries within a context.
+  edges are `inactive_edges`. The viewer's filter can show the graph within a
+  context.
 
 Any group or variable may carry a `data` mapping. `causalweb` validates that
 it is a mapping and otherwise leaves it alone, so other tools can keep their

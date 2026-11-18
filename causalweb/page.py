@@ -37,6 +37,7 @@ LEGEND_HTML = """  <div class="causal-graph-legend">
     <span><i class="cg-key cg-key-intervention"></i>intervention</span>
     <span><i class="cg-key cg-key-outcome"></i>outcome</span>
     <span><i class="cg-key cg-key-causal"></i>causes</span>
+    <span><i class="cg-key cg-key-leg"></i>causes through hidden variables</span>
     <span><i class="cg-key cg-key-correlated"></i>correlated</span>
   </div>"""
 

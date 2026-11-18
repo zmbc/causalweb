@@ -5,9 +5,8 @@
  * the container shows the legend and nothing else.
  *
  * Hierarchy is shown by containment: an open group is a labelled box holding its
- * members. Containment is used rather than colour because colour only separates
- * a handful of categories, and a graph can have many more groups than that.
- * Colour is therefore reserved for the top-level group alone.
+ * members. Colour separates only a handful of categories, and a graph can have
+ * many more groups than that, so colour marks the top-level group alone.
  */
 (function () {
   "use strict";
@@ -15,19 +14,19 @@
   var PALETTE = ["#4C72B0", "#DD8452", "#55A868", "#C44E52", "#8172B3", "#937860"];
 
   // Below roughly this zoom, labels stop being readable and nodes get too small
-  // to click. We pan rather than shrink past it.
+  // to click. Past it, the view pans and keeps this zoom.
   var MIN_LEGIBLE_ZOOM = 0.5;
   var REVEAL_MS = 650;       // how long the group you just acted on stays lit
   // A redraw tweens the graph on screen into its new layout over this long.
   // The edges unfold from straight lines into their routes over the same time.
   var MORPH_MS = 350;
   // Above this share of on-screen nodes disappearing, the new picture is a
-  // different one, and a tween into it reads as noise: the canvases are
-  // swapped instead. Nodes appearing do not count, since they start from
+  // different one, and a tween into it reads as noise, so the canvases are
+  // swapped. Nodes appearing do not count, since they start from
   // the place they came from and the motion reads as an unfold.
   var MORPH_MAX_REMOVED = 0.5;
   // How close to a box's edge, or how far down from its top, a click counts as
-  // hitting the box's frame rather than its empty interior.
+  // hitting the box's frame.
   var BOX_EDGE = 14;
   var BOX_TITLE = 26;
   // Tolerance so the border line itself is aimable from either side.
@@ -37,9 +36,8 @@
   var BADGE = 12;
   var OPEN_HIT = 17;
 
-  /* The badge is a real drawn control rather than a "+" glued onto the label:
-   * a label-borne one moves when the text wraps, so the hit box stops matching
-   * what is on screen. */
+  /* The badge is an image of its own, so it stays where its hit box is
+   * however the label wraps. */
   var PLUS_BADGE = "data:image/svg+xml;utf8," + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">' +
     '<circle cx="8" cy="8" r="7" fill="#ffffff" stroke="#5a6470" stroke-width="1.2"/>' +
@@ -127,13 +125,7 @@
     });
   }
 
-  /* Open exactly one level.
-   *
-   * This used to cascade through groups whose only content was a single child
-   * group, because in the old flat rendering such a level looked like a no-op:
-   * one dashed box swapped for another. With boxes that reasoning is gone --
-   * the level is visible as containment -- and cascading instead produced two
-   * nested frames from one click, which is both surprising and redundant. */
+  /* Open exactly one level. */
   function openThrough(data, name, open) {
     open[name] = true;
   }
@@ -156,10 +148,9 @@
    * ELK's INCLUDE_CHILDREN assigns every descendant to a global layer, so two
    * sibling boxes can span overlapping layer ranges and interleave on screen.
    * Pinning each sibling to its own partition forces disjoint bands. Ordering
-   * every scope, not just the top level, is what stops nested boxes colliding
-   * too. The order comes from the graph rather than being hard-coded, so it
-   * stays right as the model changes; a scope whose sibling graph has a cycle
-   * is left unpartitioned rather than ordered arbitrarily.
+   * every scope, nested ones too, is what stops nested boxes colliding. The
+   * order comes from the graph, so it stays right as the model changes. A
+   * scope whose sibling graph has a cycle is left unpartitioned.
    *
    * Returns { parentGroupName ("" at the root): { siblingId: rank } }.
    */
@@ -201,31 +192,16 @@
 
     var orders = {};
     Object.keys(siblings).forEach(function (parent) {
-      var keys = siblings[parent];
-      var succ = {}, indeg = {};
-      keys.forEach(function (k) { succ[k] = {}; indeg[k] = 0; });
-      data.edges.forEach(function (e) {
-        var a = owner[parent + "|" + e.source];
-        var b = owner[parent + "|" + e.target];
-        if (!a || !b || a === b || succ[a][b]) return;
-        succ[a][b] = true;
-        indeg[b] += 1;
-      });
-      var declared = {};
+      var keys = siblings[parent], declared = {}, edges = [];
       keys.forEach(function (k, i) { declared[k] = i; });
-      function byDeclaration(a, b) { return declared[a] - declared[b]; }
-      var queue = keys.filter(function (k) { return !indeg[k]; });
-      var order = {}, rank = 0, seen = 0;
-      while (queue.length) {
-        queue.sort(byDeclaration);
-        var k = queue.shift();
-        order[k] = rank++;
-        seen += 1;
-        Object.keys(succ[k]).forEach(function (m) {
-          if (--indeg[m] === 0) queue.push(m);
-        });
-      }
-      orders[parent] = seen === keys.length ? order : null;
+      data.edges.forEach(function (e) {
+        var a = owner[parent + "|" + e.source], b = owner[parent + "|" + e.target];
+        if (a && b) edges.push([a, b]);
+      });
+      var sorted = window.CausalGraphQuery.topoOrder(keys, edges, declared);
+      var order = {};
+      sorted.order.forEach(function (k, i) { order[k] = i; });
+      orders[parent] = sorted.left.length ? null : order;
     });
     return orders;
   }
@@ -239,30 +215,6 @@
   }
 
   /* ------------------------------------------------------------- matrix */
-
-  /* Descendants of every variable, computed once per graph. */
-  function descendantsOf(data) {
-    if (data.descendants) return data.descendants;
-    var children = {};
-    data.nodes.forEach(function (n) { children[n.id] = []; });
-    data.edges.forEach(function (e) {
-      if (children[e.source]) children[e.source].push(e.target);
-    });
-    var out = {};
-    function walk(v) {
-      if (out[v]) return out[v];
-      var seen = {};
-      out[v] = seen;                       // acyclic, so never read back
-      (children[v] || []).forEach(function (c) {
-        seen[c] = true;
-        Object.keys(walk(c)).forEach(function (d) { seen[d] = true; });
-      });
-      return seen;
-    }
-    data.nodes.forEach(function (n) { walk(n.id); });
-    data.descendants = out;
-    return out;
-  }
 
   /* The top-level group a bucket belongs to, "" for a cross-cutting variable. */
   function rootOf(data, id) {
@@ -326,74 +278,22 @@
     hier.forEach(function (b, i) { pos[b] = i; });
     var forward = edgeKeys.every(function (e) { return pos[e[0]] < pos[e[1]]; });
     if (complete && forward) return { order: hier, cyclic: false };
-
-    var indeg = {}, succ = {};
-    buckets.forEach(function (b) { indeg[b] = 0; succ[b] = []; });
-    edgeKeys.forEach(function (e) { succ[e[0]].push(e[1]); indeg[e[1]] += 1; });
-    function byPos(a, b) { return pos[a] - pos[b]; }
-    var ready = buckets.filter(function (b) { return !indeg[b]; });
-    var out = [], done = {};
-    while (ready.length) {
-      ready.sort(byPos);
-      var b = ready.shift();
-      out.push(b);
-      done[b] = true;
-      succ[b].forEach(function (t) { if (--indeg[t] === 0) ready.push(t); });
-    }
-    var left = hier.filter(function (b) { return !done[b]; });
-    return { order: out.concat(left), cyclic: left.length > 0 };
+    var sorted = window.CausalGraphQuery.topoOrder(buckets, edgeKeys, pos);
+    return { order: sorted.order.concat(sorted.left), cyclic: sorted.left.length > 0 };
   }
 
-  /* The adjacency matrix of the graph as currently bucketed.
+  /* The picture of the summary `s` (see summarize in causalweb_query.js): its
+   * visible variables, each drawn as itself or inside the closed group that
+   * holds it, and its edges between them. Two shown nodes are joined by at
+   * most one edge of each kind: a direct edge, an edge through hidden
+   * variables, and a <->. Each edge lists the summary's edges behind it in
+   * `parts`.
    *
-   * `direct` maps "s\0t" to the variable-level edges behind that cell, `reach`
-   * marks bucket pairs joined by any directed path, and `correlated` the
-   * pairs declared correlated, both ways round. */
-  function computeMatrix(data, open, labeller) {
-    var members = {}, bucketOf = {};
-    data.nodes.forEach(function (n) {
-      var b = bucketFor(data, n.id, open);
-      (members[b] = members[b] || []).push(n.id);
-      bucketOf[n.id] = b;
-    });
-    var direct = {}, edgeKeys = [];
-    data.edges.forEach(function (e) {
-      var s = bucketOf[e.source], t = bucketOf[e.target];
-      if (!s || !t || s === t) return;
-      var k = s + "\0" + t;
-      if (!direct[k]) { direct[k] = []; edgeKeys.push([s, t]); }
-      direct[k].push([e.source, e.target]);
-    });
-    var desc = descendantsOf(data), reach = {};
-    data.nodes.forEach(function (n) {
-      Object.keys(desc[n.id] || {}).forEach(function (d) {
-        var s = bucketOf[n.id], t = bucketOf[d];
-        if (s && t && s !== t) reach[s + "\0" + t] = true;
-      });
-    });
-    var correlated = {};
-    (data.correlated || []).forEach(function (pair) {
-      var s = bucketOf[pair[0]], t = bucketOf[pair[1]];
-      if (!s || !t || s === t) return;
-      correlated[s + "\0" + t] = true;
-      correlated[t + "\0" + s] = true;
-    });
-    var buckets = Object.keys(members);
-    var ordered = bucketOrder(data, buckets, edgeKeys);
-    var labels = {};
-    buckets.forEach(function (b) {
-      labels[b] = isGroupId(b) ? data.groups[groupName(b)].label : labeller(b);
-    });
-    return { order: ordered.order, cyclic: ordered.cyclic, labels: labels,
-             members: members, direct: direct, reach: reach,
-             correlated: correlated };
-  }
-
-  /* `nested` draws open groups as compound boxes. It requires a layout that
+   * `nested` draws open groups as compound boxes. It requires a layout that
    * understands compound nodes: without one, boxes have no computed size and
    * pile up on top of each other, which is far worse than showing no boxes at
    * all. So when ELK is unavailable we build the same graph flat. */
-  function buildElements(data, open, nested) {
+  function buildElements(data, open, nested, s, elements) {
     var els = [], seen = {}, needBox = {};
     var orders = nested ? scopeOrders(data) : null;
     // Rank of `key` among its siblings in `parent`'s scope.
@@ -403,7 +303,9 @@
       return scope && key in scope ? scope[key] : undefined;
     }
 
-    data.nodes.forEach(function (n) {
+    s.visible.forEach(function (v) {
+      var n = data.nodeById[v];
+      if (!n) return;
       var id = bucketFor(data, n.id, open);
       var path = n.path || [];
       if (nested) {
@@ -445,24 +347,44 @@
       seen[G(name)] = true;
     });
 
-    var edgeSeen = {};
-    data.edges.forEach(function (e) {
-      var s = bucketFor(data, e.source, open);
-      var t = bucketFor(data, e.target, open);
-      if (s === t) return;
-      var key = s + ">" + t;
-      if (edgeSeen[key]) return;
-      edgeSeen[key] = true;
-      els.push({ data: { id: "e" + key, source: s, target: t, kind: "causal" } });
+    var edges = {}, order = [], edgeKeys = [];
+    elements(s).forEach(function (e) {
+      var a = bucketFor(data, e.source, open), b = bucketFor(data, e.target, open);
+      if (a === b) return;
+      var prefix = e.kind === "solid" ? "e" : e.kind === "leg" ? "l" : "c";
+      // a <-> is one edge whichever way round; it is turned below
+      var key = prefix === "c" && b < a ? prefix + b + ">" + a : prefix + a + ">" + b;
+      if (!edges[key]) {
+        edges[key] = { id: key, source: a, target: b,
+                       kind: prefix === "c" ? "correlated" : "causal",
+                       contracted: prefix === "l" ? 1 : 0, expandable: 0, parts: [] };
+        order.push(key);
+        if (prefix !== "c") edgeKeys.push([a, b]);
+      }
+      edges[key].parts.push(e.id);
+      if (e.expandable) edges[key].expandable = 1;
     });
 
-    (data.correlated || []).forEach(function (pair) {
-      var s = bucketFor(data, pair[0], open);
-      var t = bucketFor(data, pair[1], open);
-      if (s === t || !seen[s] || !seen[t]) return;
-      els.push({
-        data: { id: "c" + s + ">" + t, source: s, target: t, kind: "correlated" },
+    /* A correlation has no direction, but the layered layout treats every
+     * edge as pointing from source to target. Pointing it along the causal
+     * order of what is shown keeps it from closing a cycle with the edges,
+     * which the layout would break by turning one of them upward. */
+    var pos = {};
+    if (order.some(function (k) { return k.charAt(0) === "c"; })) {
+      var buckets = Object.keys(seen).filter(function (id) {
+        return !isGroupId(id) || !needBox[groupName(id)];
       });
+      bucketOrder(data, buckets, edgeKeys).order.forEach(function (b, i) { pos[b] = i; });
+    }
+    order.forEach(function (k) {
+      var e = edges[k];
+      if (e.kind === "correlated" && pos[e.source] > pos[e.target]) {
+        var t = e.source;
+        e.source = e.target;
+        e.target = t;
+        e.id = "c" + e.source + ">" + e.target;
+      }
+      els.push({ data: e });
     });
     return els;
   }
@@ -504,7 +426,7 @@
         // The badge sits inside the top-right corner. Uniform padding of at
         // least the badge size clears it on both axes -- the label's right
         // edge stops at x2-padding and its top at y1+padding -- so the text
-        // can stay centred instead of being nudged aside.
+        // stays centred.
         padding: BADGE + 1,
         "background-image": PLUS_BADGE,
         "background-image-containment": "over",
@@ -570,15 +492,14 @@
         "source-arrow-color": "#c9868a",
       },
     },
-    // In the answer view, a leg that stands for routes through hidden
-    // variables is dotted; an edge the model has as such is solid.
+    // An edge that stands for routes through hidden variables is dotted; an
+    // edge of the model is solid.
     {
       selector: "edge[contracted = 1]",
       style: { "line-style": "dotted" },
     },
-    /* Edges carry their explanation in `note`, read out on hover rather than
-     * drawn: with a dozen edges among five nodes, labels rotate along the
-     * lines, collide with each other and are simply illegible. */
+    /* An edge is explained in its tooltip: with a dozen edges among five
+     * nodes, labels along the lines would rotate and collide. */
     // Suppress the grey puck Cytoscape paints where you tap empty canvas.
     { selector: "core", style: { "active-bg-opacity": 0, "active-bg-size": 0 } },
     { selector: ".dimmed", style: { opacity: 0.12 } },
@@ -592,20 +513,21 @@
         "target-arrow-color": "#1f6feb",
         "source-arrow-color": "#1f6feb",
         "z-index": 20,
+        opacity: 1,
       },
     },
     { selector: "node.hovered", style: { "border-color": "#1f6feb", "border-width": 2.5 } },
     // The group just opened or closed, briefly, so the change is easy to find.
     {
       selector: "node.revealed",
-      style: { "background-color": "#fff6d8", "border-color": "#d9a300",
+      style: { "background-color": "#e6f6ea", "border-color": "#2da44e",
                "border-width": 2.5 },
     },
-    // A box is mostly transparent, so tint the frame rather than the fill.
+    // A box is mostly transparent, so its frame carries the tint.
     {
       selector: "node[isBox = 1].revealed",
-      style: { "border-color": "#d9a300", "border-width": 2.5,
-               "background-color": "#d9a300", "background-opacity": 0.13 },
+      style: { "border-color": "#2da44e", "border-width": 2.5,
+               "background-color": "#2da44e", "background-opacity": 0.13 },
     },
   ];
 
@@ -626,8 +548,8 @@
       "elk.direction": "DOWN",
       "elk.hierarchyHandling": "INCLUDE_CHILDREN",
       "elk.partitioning.activate": "true",
-      // Generous enough that sibling boxes keep a visible gap rather than
-      // ending up flush against each other, which reads as an overlap.
+      // Generous enough that sibling boxes keep a visible gap. Boxes flush
+      // against each other read as an overlap.
       "elk.spacing.nodeNode": 28,
       "elk.layered.spacing.nodeNodeBetweenLayers": 50,
       "elk.spacing.edgeNode": 16,
@@ -647,8 +569,8 @@
   // Compound boxes are only drawn when a compound-aware layout is present.
   function canNest() { return !!window.cytoscapeElk; }
 
-  /* Did a click land on a box's frame -- its border or its title strip --
-   * rather than the empty space inside it? */
+  /* Whether a click landed on a box's frame: its border or its title
+   * strip. */
   function within(bb, pos, slack) {
     slack = slack || 0;
     return pos.x >= bb.x1 - slack && pos.x <= bb.x2 + slack &&
@@ -678,10 +600,9 @@
     return (bb.x2 - pos.x) < OPEN_HIT && (pos.y - bb.y1) < OPEN_HIT;
   }
 
-  /* ELK itself is never animated: it runs offstage, on a shadow copy of the
-   * graph, and the live graph is then tweened into the finished result (see
-   * morph), so the continuity comes from the tween rather than from the
-   * layout algorithm. */
+  /* ELK runs offstage, on a shadow copy of the graph, and the live graph is
+   * then tweened into the finished result (see morph). The continuity comes
+   * from the tween. */
   function layoutOptions() {
     var opts = canNest() ? LAYOUT_ELK
                          : { name: "breadthfirst", fit: false, directed: true,
@@ -721,18 +642,31 @@
   }
 
   /* This graph's whole-window page, written into _static by the Sphinx build
-   * and named in data-standalone. Earlier this page was assembled in the
-   * browser and opened as a blob URL, which does not survive: a blob belongs to
-   * the document that created it, so reloading the tab, bookmarking it, or
-   * letting sphinx-autobuild refresh the page behind it all leave nothing to
-   * load. The open groups ride along in the fragment so the bigger view starts
-   * where the reader left off. */
-  function standaloneUrl(container, open) {
+   * and named in data-standalone. It is a page of its own, so it survives a
+   * reload of the tab, a bookmark, and sphinx-autobuild refreshing the page
+   * behind it. The view state rides along in the
+   * fragment (see viewHash) so the bigger view starts where the reader left
+   * off. */
+  function standaloneUrl(container, hash) {
     var name = container.getAttribute("data-standalone");
     if (!name) return null;
-    var groups = Object.keys(open || {}).filter(function (g) { return open[g]; });
-    return scriptBase() + name + "#open=" +
-           groups.map(encodeURIComponent).join(",");
+    return scriptBase() + name + hash;
+  }
+
+  /* The fragment for a view: the open groups, the variables the filter
+   * shows when it is on (`show`, which may be empty), its context, and
+   * whether open groups are drawn as boxes. */
+  function viewHash(data, open, shown, context, boxes) {
+    function list(ids) { return ids.map(encodeURIComponent).join(","); }
+    var groups = Object.keys(open).filter(function (g) { return open[g]; });
+    var parts = ["open=" + list(groups)];
+    if (shown) {
+      parts.push("show=" + list(data.nodes.map(function (n) { return n.id; })
+        .filter(function (id) { return shown[id]; })));
+    }
+    if (shown && context) parts.push("cx=" + encodeURIComponent(context));
+    if (!boxes) parts.push("boxes=0");
+    return "#" + parts.join("&");
   }
 
   function hashParam(name) {
@@ -741,14 +675,18 @@
     return match ? match[1] : null;
   }
 
-  /* The view state carried in the fragment: open groups, the query pair, the
-   * legs opened on its answer, its context, and whether the matrix is shown. "New tab" hands the open
-   * groups over this way, and the whole-window page keeps all of it current,
-   * so a reload -- the live-reloading server does one on every edit -- comes
-   * back to the same view. Section anchors cannot collide with any of this:
-   * they carry no "=". */
+  /* The view state carried in the fragment (see viewHash). "New tab" hands
+   * it over this way, and the whole-window page keeps it current, so a reload
+   * -- the live-reloading server does one on every edit -- comes back to the
+   * same view. Section anchors cannot collide with any of this: they carry no
+   * "=". */
   function stateFromHash(data) {
-    var state = { open: null, q: null, x: [], cx: null, mx: false };
+    var state = { open: null, shown: null, cx: null, boxes: hashParam("boxes") !== "0" };
+    function ids(text) {
+      return text.split(",").map(decodeURIComponent).filter(function (id) {
+        return !!data.nodeById[id];
+      });
+    }
     var open = hashParam("open");
     if (open !== null) {
       state.open = {};
@@ -757,17 +695,8 @@
         if (name && data.groups[name]) state.open[name] = true;
       });
     }
-    var q = hashParam("q");
-    if (q !== null) {
-      var pair = q.split(",").map(decodeURIComponent);
-      if (pair.length === 2 && data.nodeById[pair[0]] && data.nodeById[pair[1]]) {
-        state.q = pair;
-      }
-    }
-    var x = hashParam("x");
-    state.x = x === null ? [] : x.split(",").map(decodeURIComponent).filter(function (id) {
-      return !!data.nodeById[id];
-    });
+    var show = hashParam("show");
+    if (show !== null) state.shown = keyed(ids(show));
     var cx = hashParam("cx");
     if (cx !== null) {
       cx = decodeURIComponent(cx);
@@ -820,9 +749,8 @@
       data, preset === "" || preset === null ? null : parseInt(preset, 10)
     );
 
-    /* controls: presets are buttons, not a dropdown -- opening groups one at a
-     * time reaches states matching no preset, and a dropdown would keep showing
-     * a stale selection. */
+    /* The controls: a button for each level of groups, Group boxes, Filter
+     * and New tab. */
     var bar = control("div", { class: "causal-graph-controls" });
     var presetBar = control("span", { class: "cg-presets" });
     var presets = [];
@@ -840,12 +768,21 @@
       presetBar.appendChild(btn);
     });
 
-    var queryBtn = control("button",
-      { type: "button", title: "Check whether the relationship between two variables is confounded" },
-      "Query");
-    var reset = control("button", { type: "button" }, "Reset view");
+    // Open groups drawn as boxes around their members, or left out.
+    var boxesBox = control("input", { type: "checkbox" });
+    boxesBox.checked = saved.boxes;
+    var boxesToggle = control("label", { class: "cg-toggle" });
+    boxesToggle.appendChild(boxesBox);
+    boxesToggle.appendChild(document.createTextNode("Group boxes"));
+    // Pressed, the filter is on and its section shows under the bar.
+    var filterBtn = control("button",
+      { type: "button", "aria-pressed": "false",
+        title: "Show only the variables checked, in a context" }, "Filter");
+    // Undo sits in the filter's section, beside Reset.
+    var undoBtn = control("button",
+      { type: "button", title: "Undo the last change to the variables shown" }, "Undo");
     var newTab = control("button", { type: "button", title: "Open in a new tab" }, "New tab");
-    [presetBar, queryBtn, reset, newTab]
+    [presetBar, boxesToggle, filterBtn, newTab]
       .forEach(function (el) { bar.appendChild(el); });
     // nothing to open from the whole-window page: it is already that page
     if (!container.getAttribute("data-standalone")) newTab.hidden = true;
@@ -866,12 +803,15 @@
       control("div", { class: "causal-graph-canvas cg-offstage" }),
     ];
     canvases.forEach(function (el) { canvasesWrap.appendChild(el); });
-    // Lives above both canvases and survives the swap between them.
-    var tip = control("div", { class: "cg-tip" });
-    tip.hidden = true;
-    canvasesWrap.appendChild(tip);
     graphCol.appendChild(canvasesWrap);
     stage.appendChild(graphCol);
+    /* The tooltip of both panes. It lives on the stage, above both canvases,
+     * so it survives the swap between them, and the matrix's scrolling does
+     * not clip it. The canvases start at the stage's corner, so a position
+     * against them is one against the stage. */
+    var tip = control("div", { class: "cg-tip" });
+    tip.hidden = true;
+    stage.appendChild(tip);
     var mxPane = control("div", { class: "cg-matrix" });
     // The table scrolls inside this; the pane's legend sits below it, still.
     var mxScroll = control("div", { class: "cg-matrix-scroll" });
@@ -884,22 +824,16 @@
       else container.appendChild(el);
     });
 
-    /* The query view's legend REPLACES the model one rather than being
-     * restated in the panel as prose: the two views share no keys, so showing
-     * both at once would be showing one that does not apply. */
     var modelLegend = container.querySelector(".causal-graph-legend");
     if (modelLegend) graphCol.appendChild(modelLegend);
 
-    /* A legend built here. Each entry is [key class, text], or [key class,
-     * text, count note]. A count note says what the numbers in the matrix
-     * mean, so it shows only when a cell has a number. */
+    /* A legend built here. Each entry is [key class, text]. */
     function makeLegend(cls, entries, note) {
       var el = control("div", { class: cls });
       entries.forEach(function (k) {
         var span = control("span", {});
         span.appendChild(control("i", { class: "cg-key " + k[0] }));
         span.appendChild(document.createTextNode(k[1]));
-        if (k[2]) span.appendChild(control("span", { class: "cg-legend-count" }, k[2]));
         el.appendChild(span);
       });
       if (note) el.appendChild(control("span", { class: "cg-legend-note" }, note));
@@ -907,37 +841,20 @@
       return el;
     }
 
-    var queryLegend = makeLegend("causal-graph-legend", [
-      ["cg-key-query", "query variables"],
-      ["cg-key-shared", "confounder"],
-      ["cg-key-via", "other variables"],
-      ["cg-key-causal", "causes directly"],
-      ["cg-key-leg", "causes through hidden variables"],
-      ["cg-key-correlated", "correlated"]]);
-    graphCol.appendChild(queryLegend);
-
     /* The matrix's keys sit in the matrix pane, under the table. */
     var matrixLegend = makeLegend("causal-graph-legend cg-matrix-legend", [
-      ["cg-key-mx-direct", "direct edge", "(a number counts the variable-level edges)"],
-      ["cg-key-mx-reach", "causal path, no direct edge"],
-      ["cg-key-mx-corr", "correlated"]],
+      ["cg-key-mx-direct", "direct edge"],
+      ["cg-key-mx-leg", "path through hidden variables"],
+      ["cg-key-mx-both", "both"],
+      ["cg-key-mx-reach", "causal path through the variables shown"],
+      ["cg-key-mx-corr", "correlated"],
+      ["cg-key-mx-far", "correlated through the variables shown"]],
       "matrix: rows cause columns, in causal order");
     mxPane.appendChild(matrixLegend);
 
-    /* In the answer view the matrix is of the projection, so its cells mean
-     * something else and get a legend of their own. */
-    var matrixAnswerLegend = makeLegend("causal-graph-legend cg-matrix-legend", [
-      ["cg-key-mx-direct", "direct edge"],
-      ["cg-key-mx-leg", "path through hidden variables",
-       "(a number counts its independent routes)"],
-      ["cg-key-mx-reach", "reaches through the variables shown"],
-      ["cg-key-mx-corr", "shared upstream causes or a correlation"]],
-      "matrix of the answer: rows cause columns; click a leg to open it");
-    mxPane.appendChild(matrixAnswerLegend);
-
     /* Show a legend when `on`, with only the entries whose key class is set
      * in `present`. A legend left with no entries and no note is hidden. */
-    function fitLegend(el, on, present, numbered) {
+    function fitLegend(el, on, present) {
       if (!el) return;
       var shown = 0;
       Array.prototype.forEach.call(el.querySelectorAll("i.cg-key"), function (key) {
@@ -947,16 +864,11 @@
         key.parentNode.hidden = !drawn;
         if (drawn) shown += 1;
       });
-      Array.prototype.forEach.call(el.querySelectorAll(".cg-legend-count"),
-        function (count) { count.hidden = !numbered; });
       el.hidden = !on || !(shown || el.querySelector(".cg-legend-note"));
     }
 
-    var ROLE_KEY = { query: "cg-key-query", confounder: "cg-key-shared",
-                     via: "cg-key-via" };
-
-    /* The diagram's legends, fitted to the elements about to be drawn. */
-    function fitGraphLegends(els, answerView) {
+    /* The diagram's legend, fitted to the elements about to be drawn. */
+    function fitGraphLegends(els) {
       var present = {};
       els.forEach(function (el) {
         var d = el.data;
@@ -966,11 +878,9 @@
         } else if (!d.isBox) {
           if (d.deterministic) present["cg-key-deterministic"] = true;
           if (d.kind) present["cg-key-" + d.kind] = true;
-          if (d.role) present[ROLE_KEY[d.role]] = true;
         }
       });
-      fitLegend(modelLegend, !answerView, present);
-      fitLegend(queryLegend, answerView, present);
+      fitLegend(modelLegend, true, present);
     }
 
     var cy = null;
@@ -979,17 +889,14 @@
     var revealTimer = null;
     var settleTimer = null;
 
-    /* Causal-query state.
-     *
-     * `answer` holds the result of the last query; `showing` means the canvas
-     * is displaying the latent projection of that answer rather than the model
-     * itself. Queries always run on the full variable-level graph, whatever is
-     * currently open on screen. */
-    var query = { on: false, a: null, b: null, answer: null, showing: false,
-                  // variables revealed by expanding projected edges
-                  extra: {},
-                  // selected context, or null for "any"
-                  context: null };
+    /* What is shown: with the filter off, every variable; with it on, the
+     * variables checked in it, none at first, in the selected context. The
+     * picture is the summary for them (see summarize in causalweb_query.js).
+     * With every variable shown, that is the model itself. `history` holds
+     * the earlier states of the filter, for Undo. */
+    var view = { filter: !!saved.shown, shown: saved.shown || {},
+                 context: saved.cx, history: [], model: null, modelKey: null,
+                 summary: null };
 
     /* Matrix state: the matrix on screen, and what the previous one showed. */
     var matrix = { current: null, last: null };
@@ -1029,27 +936,58 @@
       canvas.classList.remove("cg-panning");
     }
 
+    /* A button in the diagram's corner fits the graph to it again. It shows
+     * only once the reader has panned or zoomed: a change of the viewport
+     * while a pointer is pressed on the diagram, or just after a wheel turn
+     * over it. A redraw fits the graph, and hides it again. */
+    var fitBtn = control("button", { type: "button", class: "cg-fit",
+                                     title: "Reset pan and zoom" }, "Reset view");
+    fitBtn.hidden = true;
+    canvasesWrap.appendChild(fitBtn);
+    var pressing = false, lastWheel = 0, WHEEL_MS = 400;
+    fitBtn.addEventListener("mousedown", function (evt) { evt.stopPropagation(); });
+    fitBtn.addEventListener("click", function () {
+      // the fit is the viewer's own move, however soon it follows the reader's
+      pressing = false;
+      lastWheel = 0;
+      fitBtn.hidden = true;
+      if (cy) clampZoom();
+    });
+    // A change of the viewport that the reader made, by a drag or the wheel.
+    function byReader() { return pressing || Date.now() - lastWheel < WHEEL_MS; }
+
     canvasesWrap.addEventListener("mousedown", function (evt) {
+      pressing = true;
       if (evt.button === 0) beginDrag(evt.clientX, evt.clientY);
     });
     window.addEventListener("mousemove", function (evt) {
       moveDrag(evt.clientX, evt.clientY);
     });
-    window.addEventListener("mouseup", endDrag);
+    window.addEventListener("mouseup", function () {
+      pressing = false;
+      endDrag();
+    });
+    // in the capture phase: Cytoscape keeps the wheel to itself
+    canvasesWrap.addEventListener("wheel", function () { lastWheel = Date.now(); },
+                                  { passive: true, capture: true });
     canvasesWrap.addEventListener("touchstart", function (evt) {
+      pressing = true;
       if (evt.touches.length === 1) beginDrag(evt.touches[0].clientX, evt.touches[0].clientY);
     }, { passive: true });
     canvasesWrap.addEventListener("touchmove", function (evt) {
       if (evt.touches.length === 1) moveDrag(evt.touches[0].clientX, evt.touches[0].clientY);
     }, { passive: true });
-    canvasesWrap.addEventListener("touchend", endDrag);
+    canvasesWrap.addEventListener("touchend", function () {
+      pressing = false;
+      endDrag();
+    });
 
     /* Re-fit when the stage changes size.
      *
      * Cytoscape binds its own listener to the window, but nothing watches the
      * container, and the panel above the stage changes height on its own --
-     * entering the answer view adds lines to it. A graph fitted to the old
-     * height is then left clipped at the bottom. */
+     * opening the filter adds lines to it. A graph fitted to the old height
+     * is then left clipped at the bottom. */
     if (window.ResizeObserver) {
       var resizeTimer = null;
       new window.ResizeObserver(function () {
@@ -1062,10 +1000,10 @@
       }).observe(canvasesWrap);
     }
 
-    /* Clearing hover is bound to the DOM, not to Cytoscape: cy's "mouseout"
-     * also fires as the pointer crosses from one element to another, which
-     * wiped the cursor the instant mousemove had set it. Attached once here,
-     * not in wire(), which re-runs on every redraw. */
+    /* Clearing hover is bound to the DOM's mouseleave: Cytoscape's
+     * "mouseout" also fires as the pointer crosses from one element to
+     * another, which would wipe the cursor the instant mousemove set it.
+     * Attached once here, since wire() runs again on every redraw. */
     canvasesWrap.addEventListener("mouseleave", function () {
       lastHover = null;
       canvas.classList.remove("cg-over-node");
@@ -1073,11 +1011,11 @@
       if (cy) cy.elements().removeClass("hovered");
     });
 
-    /* ---- causal queries ---- */
+    /* ---- the model, and what is shown of it ---- */
 
     /* A label that tells a variable apart from a namesake in another group.
-     * Inside the diagram the enclosing box gives the context; in a dropdown,
-     * the panel or the matrix there is none, so the group's name is added. */
+     * Inside the diagram the enclosing box gives the context; in the filter
+     * or the matrix there is none, so the group's name is added. */
     var labelCount = {};
     data.nodes.forEach(function (n) {
       labelCount[n.label] = (labelCount[n.label] || 0) + 1;
@@ -1091,10 +1029,9 @@
       return n.label;
     }
 
-    /* The graph as the selected context sees it: the variables it holds at a
-     * single value, and the edges that carry nothing under it. */
-    function contextData() {
-      var cx = currentContext();
+    /* The graph as context `cx` sees it: the variables it holds at a single
+     * value, and the edges that carry nothing under it. */
+    function contextData(cx) {
       if (!cx) return data;
       var copy = {};
       Object.keys(data).forEach(function (k) { copy[k] = data[k]; });
@@ -1103,190 +1040,243 @@
       return copy;
     }
 
+    // The context, which is part of the filter, and so applies only where
+    // the filter does (see filtering).
     function currentContext() {
+      return filtering() ? namedContext(view.context) : null;
+    }
+
+    function namedContext(name) {
       return (data.contexts || []).filter(function (c2) {
-        return c2.name === query.context;
+        return c2.name === name;
       })[0];
     }
 
-    function runQuery() {
-      if (!window.CausalGraphQuery || !query.a || !query.b) return;
-      query.answer = window.CausalGraphQuery.analyze(
-        contextData(), query.a, query.b);
+    /* The model in the selected context, and the summary for the variables
+     * shown, each worked out once and kept until what it depends on changes.
+     * The summary keeps its elements by id, and the notes its tooltips have
+     * needed (see noteFor). */
+    function viewModel() {
+      var cx = currentContext(), key = cx ? cx.name : "";
+      if (!view.model || view.modelKey !== key) {
+        view.model = window.CausalGraphQuery.build(contextData(cx));
+        view.modelKey = key;
+        view.summary = null;
+      }
+      return view.model;
     }
 
-    /* Every change to the query has to go through here.
-     *
-     * The canvas is a function of the query state -- in the answer view it is
-     * built from the answer itself -- so changing that state without redrawing
-     * leaves the old graph on screen with the new state's behaviour attached to
-     * it: marks land on nodes that are no longer there, clicks resolve against
-     * a view that has moved on. */
-    function queryChanged(reveal) {
-      // Panel first: it sits above the stage, so its height decides how much
-      // room the graph has, and the layout that follows fits into that.
-      renderPanel();
+    /* The filter applies when every group is open, the "Every variable"
+     * level. With any group closed, every variable is shown, at that level,
+     * in no context. */
+    function everyOpen() {
+      return Object.keys(data.groups).every(function (g) { return open[g]; });
+    }
+
+    function filtering() { return view.filter && everyOpen(); }
+
+    function shownList() {
+      var all = data.nodes.map(function (n) { return n.id; });
+      if (!filtering()) return all;
+      return all.filter(function (id) { return view.shown[id]; });
+    }
+
+    function viewSummary() {
+      var m = viewModel(), list = shownList(), key = list.join("\0");
+      if (!view.summary || view.summary.key !== key) {
+        var Q = window.CausalGraphQuery, value = Q.summarize(m, list), byId = {};
+        Q.elements(value).forEach(function (e) { byId[e.id] = e; });
+        view.summary = { key: key, value: value, byId: byId, notes: {} };
+      }
+      return view.summary.value;
+    }
+
+    function summaryElement(id) {
+      viewSummary();
+      return view.summary.byId[id];
+    }
+
+    /* Every change to what is shown goes through here: the filter's boxes
+     * follow, and the picture is drawn again. */
+    function changed(reveal) {
+      syncFilter();
       draw(reveal);
     }
 
-    /* Name one of the pair, from the pickers or from a click on the diagram.
-     *
-     * Anything revealed by opening a leg belonged to the previous answer, so it
-     * goes. The answer is shown as soon as there is one: naming both variables
-     * is the whole question, so there is nothing further to ask for. */
-    function setEndpoints(first, second) {
-      query.a = first;
-      query.b = second;
-      query.answer = null;
-      query.extra = {};
-      runQuery();
-      query.showing = !!query.answer;
-      queryChanged();
+    /* Turn the filter on or off, or show a new set of variables, keeping the
+     * state before for Undo. */
+    function setFilter(on, shown, reveal) {
+      view.history.push({ filter: view.filter, shown: view.shown });
+      view.filter = on;
+      view.shown = shown;
+      changed(reveal);
     }
 
-    function resetQuery() {
-      query.a = query.b = query.answer = null;
-      query.showing = false;
-      query.extra = {};
+    function setShown(shown, reveal) { setFilter(true, shown, reveal); }
+
+    /* Shortcuts into the filter: a pair from the matrix, and a variable
+     * from the diagram. */
+    function filterTo(ids, reveal) { setShown(keyed(ids), reveal); }
+
+    filterBtn.addEventListener("click", function () {
+      setFilter(!view.filter, view.shown);
+      if (view.filter) search.focus();
+    });
+
+    boxesBox.addEventListener("change", function () { draw(); });
+
+    undoBtn.addEventListener("click", function () {
+      if (!view.history.length) return;
+      var last = view.history.pop();
+      view.filter = last.filter;
+      view.shown = last.shown;
+      changed();
+    });
+
+    /* The filter belongs to the "Every variable" level, the only one it
+     * applies to. The filter's section shows while it is on, and
+     * a note on the diagram while it shows nothing. */
+    var emptyNote = control("div", { class: "cg-empty-note" },
+      "Check variables in the filter to show them.");
+    emptyNote.hidden = true;
+    canvasesWrap.appendChild(emptyNote);
+
+    function fitControls() {
+      var on = everyOpen();
+      filterBtn.hidden = !on;
+      filterBtn.classList.toggle("cg-active", view.filter);
+      filterBtn.setAttribute("aria-pressed", view.filter ? "true" : "false");
+      undoBtn.disabled = !view.history.length;
+      panel.hidden = !filtering();
+      emptyNote.hidden = !filtering() || shownList().length > 0;
     }
 
     function say(parent, text, cls) {
       parent.appendChild(control("span", cls ? { class: cls } : {}, text));
     }
 
-    /* Mark the endpoints on the model view. The answer view already colours
-     * them by role, so it is left alone. Called after every swap, because a
-     * redraw builds a new Cytoscape instance and drops the classes. */
-    function markPicked() {
-      if (!cy || !query.on || query.showing) return;
-      cy.nodes().removeClass("picked");
-      [query.a, query.b].forEach(function (id) {
-        if (id) cy.getElementById(id).addClass("picked");
-      });
-    }
+    /* The filter: the context, and a box for each variable, which is checked
+     * when the variable is shown. The list is in causal order, the checked
+     * variables first, and can be narrowed by a search.
+     * "Reset" unchecks every variable and clears the search, and "Undo"
+     * takes back the last change to the variables shown. */
+    var filterBoxes = {};
+    var filterRows = [], filterList = null;
+    var search = control("input", { type: "search", class: "cg-filter-search",
+                                    placeholder: "Search variables",
+                                    "aria-label": "Search variables" });
 
-    /* A dropdown of every variable. Clicking nodes works too, but the fully
-     * expanded graph is far taller than the viewport, so hunting for an
-     * endpoint by eye means panning around; picking by name is the usable
-     * path and clicking is the shortcut. */
-    function variablePicker(selected, onChange, allowed) {
-      var sel = control("select", {});
-      sel.appendChild(control("option", { value: "" }, "—"));
-      data.nodes.slice().sort(function (a, b) {
-        var la = labelOf(a.id), lb = labelOf(b.id);
-        return la < lb ? -1 : la > lb ? 1 : 0;
-      }).forEach(function (n) {
-        // A stale selection stays listed, so the panel can explain it rather
-        // than the dropdown silently showing something else.
-        if (allowed && !allowed[n.id] && n.id !== selected) return;
-        var opt = control("option", { value: n.id }, labelOf(n.id));
-        if (n.id === selected) opt.setAttribute("selected", "selected");
-        sel.appendChild(opt);
-      });
-      sel.addEventListener("change", function () { onChange(sel.value || null); });
-      return sel;
-    }
-
-
-    function renderPanel() {
+    function buildFilter() {
       panel.textContent = "";
-      if (!query.on) { panel.hidden = true; return; }
-      panel.hidden = false;
-
       if ((data.contexts || []).length) {
-        var cxRow = control("div", { class: "cg-panel-pick" });
-        say(cxRow, "Context", "cg-pick-label");
+        var cxRow = control("div", { class: "cg-filter-row" });
+        say(cxRow, "Context", "cg-filter-label");
         var cxSel = control("select", {});
         cxSel.appendChild(control("option", { value: "" }, "any (structure only)"));
         data.contexts.forEach(function (c2) {
           var opt = control("option", { value: c2.name }, c2.label || c2.name);
-          if (c2.name === query.context) opt.setAttribute("selected", "selected");
+          if (c2.name === view.context) opt.setAttribute("selected", "selected");
           cxSel.appendChild(opt);
         });
         cxSel.addEventListener("change", function () {
-          query.context = cxSel.value || null;
-          setEndpoints(query.a, query.b);
+          view.context = cxSel.value || null;
+          changed();
         });
         cxRow.appendChild(cxSel);
         panel.appendChild(cxRow);
       }
-
-      var picker = control("div", { class: "cg-panel-pick" });
-      say(picker, "Variables", "cg-pick-label");
-      picker.appendChild(variablePicker(query.a, function (id) {
-        setEndpoints(id, query.b);
-      }));
-      say(picker, "and", "cg-pick-label");
-      picker.appendChild(variablePicker(query.b, function (id) {
-        setEndpoints(query.a, id);
-      }));
-      panel.appendChild(picker);
-
-      if (!query.a || !query.b) {
-        say(panel, "Pick two variables above, or click two in the diagram.",
-          "cg-hint");
-        return;
+      var row = control("div", { class: "cg-filter-row" });
+      row.appendChild(search);
+      var reset = control("button", { type: "button" }, "Reset");
+      row.appendChild(reset);
+      row.appendChild(undoBtn);
+      panel.appendChild(row);
+      var list = filterList = control("div", { class: "cg-filter-list" });
+      // in the order of the matrix with every variable shown
+      var causal = bucketOrder(data, data.nodes.map(function (n) { return n.id; }),
+        data.edges.map(function (e) { return [e.source, e.target]; })).order;
+      causal.forEach(function (id, rank) {
+        var n = data.nodeById[id];
+        var label = control("label", { class: "cg-filter-item" });
+        var box = control("input", { type: "checkbox", "data-id": n.id });
+        box.addEventListener("change", function () {
+          var next = Object.assign({}, view.shown);
+          if (box.checked) next[n.id] = true;
+          else delete next[n.id];
+          setShown(next);
+        });
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(labelOf(n.id)));
+        list.appendChild(label);
+        filterBoxes[n.id] = box;
+        filterRows.push({ id: n.id, el: label, rank: rank,
+                          text: (labelOf(n.id) + " " + n.id).toLowerCase() });
+      });
+      panel.appendChild(list);
+      function narrow() {
+        var words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+        filterRows.forEach(function (r) {
+          r.el.hidden = !words.every(function (w) { return r.text.indexOf(w) >= 0; });
+        });
       }
-
-      var a = query.answer;
-      var head = control("div", { class: "cg-panel-head" });
-      say(head, labelOf(query.a) + "  and  " + labelOf(query.b), "cg-panel-pair");
-      panel.appendChild(head);
-
-      var body = control("div", { class: "cg-panel-body" });
-
-      if (a.fromIsConstant || a.toIsConstant) {
-        var frozen = [];
-        if (a.fromIsConstant) frozen.push(labelOf(a.from));
-        if (a.toIsConstant) frozen.push(labelOf(a.to));
-        say(body, frozen.join(" and ") + " "
-          + (frozen.length > 1 ? "are" : "is") + " held at a single value in"
-          + " this context, so there is no variation to relate to anything"
-          + " else.", "cg-fact cg-bad");
-        panel.appendChild(body);
-        panel.appendChild(queryActions(a));
-        return;
-      }
-
-      /* Which one causes the other is a fact to report, not something the
-       * reader had to know to ask the question. The graph is acyclic, so it
-       * can only be one of them or neither. */
-      say(body, a.causes
-        ? labelOf(a.causes[0]) + " causes " + labelOf(a.causes[1]) + "."
-        : "Neither causes the other.", "cg-fact");
-
-      /* Not "confounded": that word is about an influence being measured, and
-       * a query here is a pair, with no influence required. What is true
-       * either way is that something upstream moves both. The diagram says
-       * which -- restating it as a list of names was the same answer twice. */
-      say(body, a.confounded
-        ? (a.causes ? "They are also correlated through common causes."
-                    : "They are correlated through common causes.")
-        : "They share no common causes.",
-        a.confounded ? "cg-fact" : "cg-fact cg-good");
-      panel.appendChild(body);
-      panel.appendChild(queryActions(a));
+      reset.addEventListener("click", function () {
+        search.value = "";
+        narrow();
+        setShown({});
+      });
+      search.addEventListener("input", narrow);
+      syncFilter();
     }
+
+    /* The boxes follow what is shown, and the checked variables come first
+     * in the list. Moving a row takes the focus from its box, so the focus
+     * is put back. */
+    function syncFilter() {
+      Object.keys(filterBoxes).forEach(function (id) {
+        filterBoxes[id].checked = !!view.shown[id];
+      });
+      if (!filterList) return;
+      var focused = document.activeElement;
+      filterRows.slice().sort(function (a, b) {
+        return (view.shown[a.id] ? 0 : 1) - (view.shown[b.id] ? 0 : 1) || a.rank - b.rank;
+      }).forEach(function (r, i) {
+        if (filterList.children[i] !== r.el) filterList.insertBefore(r.el, filterList.children[i] || null);
+      });
+      if (focused && filterList.contains(focused) && document.activeElement !== focused) {
+        focused.focus({ preventScroll: true });
+      }
+    }
+
 
     /* What the thing under the pointer is, for the tooltip. Edge explanations
      * have to be read somewhere other than the edge: with a dozen links among
      * five variables the labels rotate along the lines and collide. */
     function tipText(target) {
-      if (!query.showing || !target || target === cy || !target.isNode) return "";
-      // Nodes say nothing: their colour is their role, and the legend has it.
-      if (target.isNode()) return "";
-      var note = target.data("note");
-      var arrow = target.data("kind") === "correlated" ? " ↔ " : " → ";
-      var lead = labelOf(target.data("source")) + arrow
-               + labelOf(target.data("target"));
-      if (!note) return lead;
-      return lead + " — " + note
-        + (target.data("expandable") ? " (click to open)" : "");
+      if (!target || target === cy || !target.isNode) return "";
+      // Nodes say nothing. An edge is highlighted, so its tooltip need not
+      // name it. While a choice is open, it is what the reader looks at.
+      if (target.isNode() || !chooser.hidden) return "";
+      return partsText(target.data("parts") || []);
     }
 
-    /* Placed against the stage, not the page: the stage is the positioned
-     * ancestor, and Cytoscape's rendered coordinates are already relative to
-     * it. Flipped below the pointer when there is no room above, and kept
+    /* The tooltips of the summary's edges behind a drawn edge or a matrix
+     * cell, each once, at most PARTS_SHOWN of them. */
+    var PARTS_SHOWN = 3;
+
+    function partsText(ids) {
+      var texts = [];
+      ids.forEach(function (id) {
+        var el = summaryElement(id), text = el ? noteFor(el).text : "";
+        if (text && texts.indexOf(text) < 0) texts.push(text);
+      });
+      // Legs between one pair are routes of one arrow, all of them taken.
+      texts = texts.map(function (t, i) { return i ? "and " + t : t; });
+      if (texts.length > PARTS_SHOWN) texts = texts.slice(0, PARTS_SHOWN).concat(["…"]);
+      return texts.join("\n");
+    }
+
+    /* Placed against the stage, the positioned ancestor, to which
+     * Cytoscape's rendered coordinates are already relative. Flipped below the pointer when there is no room above, and kept
      * inside the stage horizontally. */
     /* An absolutely positioned box with no set width shrinks to the room
      * left of it, so a tip placed near the right edge would wrap into a
@@ -1312,148 +1302,188 @@
       tip.style.top = Math.round(y) + "px";
     }
 
-    /* No "show me the answer" step: naming two variables IS the question, so
-     * the answer replaces the diagram straight away. What is worth a button is
-     * getting back -- to the answer as first drawn, and to the model. */
-    function queryActions(a) {
-      var actions = control("div", { class: "cg-panel-actions" });
-      if (Object.keys(query.extra).length) {
-        var back = control("button", { type: "button" }, "Collapse again");
-        back.addEventListener("click", function () {
-          query.extra = {};
-          queryChanged();
-        });
-        actions.appendChild(back);
-      }
-      var clearBtn = control("button", { type: "button" }, "New query");
-      clearBtn.addEventListener("click", function () {
-        resetQuery();
-        // Back to the model: a different picture, not a rearrangement.
-        queryChanged({ swap: true });
+    /* What a leg or a <-> stands for, for its tooltip, and the variables a
+     * click on it offers to reveal: at most CHOICES of those it names, the
+     * first, the middle and the last. Worked out on first hover and kept.
+     *
+     * A leg gives its route (routeSteps in causalweb_query.js) in at most
+     * ROUTE_NAMES names. Steps are joined by arrows. Names in parentheses
+     * are alternatives: each route passes one of them. "…" stands for hidden
+     * variables the text leaves out, however they are joined. A set of more
+     * than SET_NAMES names the two that most routes pass. Past the limit,
+     * sets give way to "…" first, the largest first, and then single names,
+     * from the middle. A route with one step named and nothing else reads
+     * "via X, Y, and Z". A <-> names the smallest set of variables its
+     * shared causes act through, in the same form. */
+    var CHOICES = 3, ROUTE_NAMES = 4, SET_NAMES = 3;
+
+    /* "X", "X or Y", "X, Y, or Z"; "X, Y, …" when some are left out. Commas
+     * would split a label that has one of its own, so then the names are
+     * joined by the conjunction alone, or by spaces before a "…". */
+    function listText(ids, more, conj) {
+      var words = ids.map(labelOf);
+      var commas = !words.some(function (w) { return w.indexOf(",") >= 0; });
+      if (more) return words.concat(["\u2026"]).join(commas ? ", " : " ");
+      if (words.length < 3 || !commas) return words.join(" " + conj + " ");
+      return words.slice(0, -1).join(", ") + ", " + conj + " " + words[words.length - 1];
+    }
+
+    function trimmed(ids) {
+      var shown = ids.length > SET_NAMES ? 2 : ids.length;
+      return { names: ids.slice(0, shown), more: ids.length > shown };
+    }
+
+    function routeText(steps) {
+      var items = steps.map(function (st) {
+        if (st.gap) return { gap: true };
+        var it = trimmed(st.names);
+        it.set = !!st.set;
+        return it;
       });
-      actions.appendChild(clearBtn);
-      return actions;
+      function shown() { return items.filter(function (it) { return !it.gap; }); }
+      function named() {
+        return shown().reduce(function (n, it) { return n + it.names.length; }, 0);
+      }
+      items.filter(function (it) { return it.set; }).sort(function (x, y) {
+        return y.names.length - x.names.length;
+      }).forEach(function (it) { if (named() > ROUTE_NAMES) it.gap = true; });
+      while (named() > ROUTE_NAMES) {
+        var left = shown();
+        left[Math.floor((left.length - 1) / 2)].gap = true;
+      }
+      // neighbouring gaps are one
+      items = items.filter(function (it, i) { return !(it.gap && i && items[i - 1].gap); });
+      var ids = [];
+      shown().forEach(function (it) { ids = ids.concat(it.names); });
+      var only = shown().length === 1 ? shown()[0] : null;
+      var text = only ? listText(only.names, only.more, "and") : items.map(function (it) {
+        if (it.gap) return "…";
+        var list = listText(it.names, it.more, "or");
+        return it.names.length + (it.more ? 1 : 0) > 1 ? "(" + list + ")" : list;
+      }).join(" → ");
+      return { text: "via " + text, ids: ids };
     }
 
-    /* The kept set: the endpoints, the variables they share upstream, and
-     * anything revealed by opening a leg. */
-    function answerKeep() {
-      var a = query.answer;
-      var keep = a.keep.concat(Object.keys(query.extra)).filter(
-        function (v, i, arr) { return arr.indexOf(v) === i; });
-      /* Restored on every read, not just when the query is first run: opening
-       * a leg grows the kept set, and a bigger kept set can expose a shared
-       * cause that was previously hidden behind one of its own descendants. */
-      return window.CausalGraphQuery.closeUnexplained(a.model, a.from, a.to, keep);
+    // the first, the middle and the last
+    function spread(list) {
+      if (list.length <= CHOICES) return list.slice();
+      return [list[0], list[Math.floor((list.length - 1) / 2)], list[list.length - 1]];
     }
 
-    function answerProjection() {
-      var Q = window.CausalGraphQuery;
-      return Q.project(query.answer.model, answerKeep());
-    }
-
-    /* What each shown variable is to the others, read off the projection
-     * rather than off how it came to be shown. A query endpoint; a
-     * confounder, which causes both query variables, directly or through
-     * other variables shown; or any other variable on the paths. */
-    var ROLE_COLOUR = { query: "#1f6feb", confounder: "#b06f00", via: "#6c757d" };
-
-    function answerRoles(keep, pr) {
-      var succ = {};
-      keep.forEach(function (id) { succ[id] = []; });
-      pr.directed.forEach(function (e) { (succ[e[0]] = succ[e[0]] || []).push(e[1]); });
-      function reaches(from, to) {
-        var seen = {}, stack = (succ[from] || []).slice();
-        while (stack.length) {
-          var n = stack.pop();
-          if (n === to) return true;
-          if (seen[n]) continue;
-          seen[n] = true;
-          (succ[n] || []).forEach(function (c) { stack.push(c); });
+    function noteFor(el) {
+      var m = viewModel(), s = viewSummary(), cache = view.summary.notes;
+      if (el.id in cache) return cache[el.id];
+      var Q = window.CausalGraphQuery, note = { text: "", choices: null };
+      if (el.kind === "leg") {
+        var r = routeText(Q.routeSteps(m, el));
+        note.text = r.text;
+        note.choices = spread(r.ids);
+      } else if (el.kind === "bi" && !el.expandable) {
+        note.text = "declared correlation";
+      } else if (el.kind === "bi") {
+        // a <-> that can be opened always has such a set (see causeCut)
+        var causes = Q.causeSet(m, s.visible, el.source, el.target);
+        if (causes && causes.length) {
+          var it = trimmed(Q.inOrder(m, causes));
+          note.text = "due to " + listText(it.names, it.more, "and");
+          note.choices = it.names;
         }
-        return false;
+        if (el.declared) {
+          note.text = note.text ? note.text + "\nand a declared correlation" : "declared correlation";
+        }
       }
-      var roles = {};
-      keep.forEach(function (id) {
-        roles[id] = (id === query.a || id === query.b) ? "query"
-                  : reaches(id, query.a) && reaches(id, query.b) ? "confounder" : "via";
-      });
-      return roles;
+      cache[el.id] = note;
+      return note;
     }
 
 
-
-    /* Why, as a graph: the two endpoints, the variables they share upstream,
-     * and a leg for each contracted run between them. Each leg says how many
-     * independent routes it stands for and opens at its narrowest waist. */
-    function projectionElements() {
-      var a = query.answer;
-      var keep = answerKeep();
-      var pr = answerProjection();
-      var els = [];
-      var roles = answerRoles(keep, pr);
-      keep.forEach(function (id) {
-        /* The pair share a colour because the question does not distinguish
-         * them. Everything else is coloured by what it is in the picture as
-         * drawn: a fork, or a variable on a route. */
-        /* No `deterministic` or `kind`, deliberately: those thicken or fill
-         * some variables, which in this view is a distinction with no key in
-         * the legend -- it made one of the two query variables look
-         * emphasised over the other. Here colour carries the only difference
-         * that matters. */
-        els.push({ data: {
-          id: id,
-          label: labelOf(id),
-          colour: ROLE_COLOUR[roles[id]],
-          role: roles[id],
-        }});
+    /* The variables a click on these legs or <-> edges offers to reveal (see
+     * noteFor), at most CHOICES, or null when they offer none. */
+    function revealChoices(els) {
+      var out = [];
+      els.forEach(function (el) {
+        if (!el.expandable) return;
+        (noteFor(el).choices || []).forEach(function (id) {
+          if (out.indexOf(id) < 0) out.push(id);
+        });
       });
-      var Q = window.CausalGraphQuery;
-      pr.directed.forEach(function (e) {
-        var ex = Q.explainEdge(a.model, pr, keep, e[0], e[1], "causal");
-        var routes = ex.routes || 0;
-        var contracted = (ex.through || []).length > 0;
-        els.push({ data: {
-          id: "p" + e[0] + ">" + e[1], source: e[0], target: e[1],
-          kind: "causal", expandable: ex.add.length ? 1 : 0,
-          // An edge the model has as such, or a leg standing for routes
-          // through variables not shown. The two are coloured apart.
-          contracted: contracted ? 1 : 0,
-          note: routes > 1 ? routes + " independent routes"
-              : contracted ? "one route" : "a direct edge",
-        }});
-      });
-      pr.bidirected.forEach(function (e) {
-        var ex = Q.explainEdge(a.model, pr, keep, e[0], e[1], "correlated");
-        els.push({ data: {
-          id: "q" + e[0] + ">" + e[1], source: e[0], target: e[1],
-          kind: "correlated", expandable: ex.add.length ? 1 : 0,
-          note: ex.irreducible
-            ? "correlated by construction"
-            : ex.latentOnly
-              ? "via a correlation"
-              : "shared upstream: " + ex.via.map(labelOf).join(", "),
-        }});
-      });
-      return els;
+      return out.length ? out.slice(0, CHOICES) : null;
     }
 
-    /* Reveal what a projected edge stands for: the next variable along a
-     * contracted chain, or the nearest common cause behind a `<->`. */
-    function expandAnswerLeg(source, target, kind) {
-      var Q = window.CausalGraphQuery;
-      var keep = answerKeep();
-      var ex = Q.explainEdge(query.answer.model, answerProjection(), keep,
-                             source, target, kind);
-      if (!ex.add.length) return null;
-      ex.add.forEach(function (id) { query.extra[id] = true; });
-      return ex.add;
+    function reveal(ids, origin) {
+      var next = Object.assign({}, view.shown);
+      ids.forEach(function (id) { next[id] = true; });
+      setShown(next, { ids: keyed(ids), origin: origin });
     }
 
-    function expandAnswerEdge(edge) {
-      return expandAnswerLeg(edge.data("source"), edge.data("target"),
-                             edge.data("kind"));
+    /* A click on legs or <-> edges. One variable to reveal is revealed. With
+     * more, a menu near the click at `place` ({ holder, x, y }, in the
+     * holder's own coordinates) asks which. Every leg or <-> that can be
+     * opened offers at least one (see noteFor). */
+    function offerReveal(els, place, origin) {
+      var ids = revealChoices(els);
+      if (!ids) return;
+      if (ids.length === 1) {
+        reveal(ids, origin);
+      } else {
+        choose(ids, place, function (id) { reveal([id], origin); });
+      }
     }
+
+    /* The menu: one button for each variable. Any press outside it, Escape,
+     * a pan or zoom, and any redraw close it. */
+    var chooser = control("div", { class: "cg-choose" });
+    chooser.hidden = true;
+    chooser.addEventListener("mousedown", function (evt) { evt.stopPropagation(); });
+
+    function closeChooser() {
+      chooser.hidden = true;
+      chooser.textContent = "";
+    }
+
+    function choose(ids, place, pick) {
+      closeChooser();
+      tip.hidden = true;
+      if (chooser.parentNode !== place.holder) place.holder.appendChild(chooser);
+      say(chooser, "Reveal", "cg-choose-head");
+      ids.forEach(function (id) {
+        var btn = control("button", { type: "button", "data-id": id }, labelOf(id));
+        btn.addEventListener("click", function (evt) {
+          evt.stopPropagation();
+          closeChooser();
+          pick(id);
+        });
+        chooser.appendChild(btn);
+      });
+      chooser.hidden = false;
+      // kept inside the part of the holder on screen
+      var h = place.holder, w = chooser.offsetWidth, ht = chooser.offsetHeight;
+      var x = Math.min(place.x + 8, h.scrollLeft + h.clientWidth - w - 4);
+      var y = place.y + 8;
+      if (y + ht > h.scrollTop + h.clientHeight - 4) y = place.y - ht - 8;
+      chooser.style.left = Math.round(Math.max(x, h.scrollLeft + 4)) + "px";
+      chooser.style.top = Math.round(Math.max(y, h.scrollTop + 4)) + "px";
+    }
+
+    document.addEventListener("mousedown", function (evt) {
+      if (!chooser.hidden && !chooser.contains(evt.target)) closeChooser();
+    }, true);
+    document.addEventListener("touchstart", function (evt) {
+      if (!chooser.hidden && !chooser.contains(evt.target)) closeChooser();
+    }, true);
+    document.addEventListener("keydown", function (evt) {
+      if (evt.key === "Escape") closeChooser();
+    });
+
+    // The summary's edges behind a drawn edge.
+    function partsOf(edge) {
+      return (edge.data("parts") || []).map(summaryElement).filter(Boolean);
+    }
+
+    // Handle for headless tests: a drawn edge's tooltip.
+    container._edgesForTest = {
+      tip: function (id) { return cy ? tipText(cy.getElementById(id)) : ""; },
+    };
 
     function clampZoom() {
       cy.fit(undefined, 18);
@@ -1471,25 +1501,29 @@
      * stays up untouched until the new one is laid out. reveal.ids marks nodes
      * that just appeared, highlighted briefly so a click's effect is obvious.
      */
-    function draw(reveal) {
+    /* `queued` marks a draw deferred while a layout ran (see below). It
+     * catches up with a state that was already current, so a menu opened
+     * since stays open; a draw for a new state closes it. */
+    function draw(reveal, queued) {
       // The pointer is about to be over something else, or over nothing.
       tip.hidden = true;
+      if (!queued) closeChooser();
       lastHover = null;
       saveState();
       /* One build at a time.
        *
-       * Two draws in the same turn -- changing both endpoints at once does
-       * that -- would otherwise put two Cytoscape instances in the same
+       * Two draws in the same turn -- a click that changes what is shown
+       * while a layout is running does that -- would otherwise put two Cytoscape instances in the same
        * offstage container, each one's swap capturing the same predecessor and
        * trying to destroy it. Abandoning the first is no better: ELK lays out
        * asynchronously and hands its result back to an instance that is by
        * then destroyed. So a draw asked for mid-build is deferred to the swap,
        * where it picks up whatever the state has become. */
       if (pending) { queuedDraw = { reveal: reveal || null }; return; }
-      var showingAnswer = query.showing && query.answer;
-      var els = showingAnswer ? projectionElements()
-                              : buildElements(data, open, canNest());
-      fitGraphLegends(els, !!showingAnswer);
+      fitControls();
+      var els = buildElements(data, open, canNest() && boxesBox.checked, viewSummary(),
+                              window.CausalGraphQuery.elements);
+      fitGraphLegends(els);
       // Decided here, from the element list, so that the matrix can mark what
       // is new under the same rule the diagram tweens by.
       var tween = shouldMorph(els, reveal);
@@ -1540,9 +1574,10 @@
         wire();
         finish();
       }
-      /* Shared tail: light what changed, restore the query marks, and run a
-       * draw that was asked for meanwhile. */
+      /* Shared tail: light what changed, and run a draw that was asked for
+       * meanwhile. */
       function finish() {
+        fitBtn.hidden = true;
         if (reveal && reveal.ids) {
           var inst = cy;
           var fresh = cy.nodes().filter(function (n) { return reveal.ids[n.id()]; });
@@ -1553,16 +1588,15 @@
             if (!inst.destroyed()) fresh.removeClass("revealed");
           }, REVEAL_MS);
         }
-        markPicked();
         if (queuedDraw) {
           var again = queuedDraw;
           queuedDraw = null;
-          draw(again.reveal);
+          draw(again.reveal, true);
         }
       }
 
-      // The layout is run explicitly rather than passed to the constructor, so
-      // that layoutstop is bound before the layout can finish.
+      // The layout is run here, after layoutstop is bound, so the handler is
+      // there before the layout can finish.
       var layout = next.layout(layoutOptions());
       pending = next;
       layout.one("layoutstop", arrive);
@@ -1846,7 +1880,7 @@
           live.style(pair.start);
           eases.push([live, pair.end, route]);
         } else {
-          live.style(route);          // not an ELK route before: nothing to ease from
+          live.style(route);          // no ELK route before, so nothing to ease from
         }
       });
       cy.endBatch();
@@ -1927,17 +1961,8 @@
     function actionAt(target, pos) {
       var isNode = target && target !== cy && target.isNode && target.isNode();
       var isEdge = target && target !== cy && target.isEdge && target.isEdge();
-      /* Picking by click belongs to the model view, where it is a shortcut for
-       * the dropdowns. Once the answer is up there is nothing on screen that
-       * is not already part of it, and a click that threw the answer away to
-       * start over was startling rather than useful -- so a variable there is
-       * something to hover, not something to press. */
-      if (query.on && isNode && !target.data("isBox") &&
-          !target.data("collapsedGroup")) {
-        return { kind: query.showing ? "inspect" : "pick", node: target };
-      }
-      // In the answer view an edge is a summary of something, so it opens up.
-      if (query.showing && isEdge && target.data("expandable")) {
+      // An edge that stands for something hidden opens up.
+      if (isEdge && target.data("expandable")) {
         return { kind: "expandEdge", edge: target };
       }
       // An open box's frame wins over whatever is drawn across it: closing is
@@ -1955,35 +1980,29 @@
       return { kind: "clear" };
     }
 
-    var CLICKABLE = { close: 1, open: 1, highlight: 1, pick: 1, expandEdge: 1 };
-    container._actionAtForTest = actionAt;   // handle for headless UI tests
+    var CLICKABLE = { close: 1, open: 1, highlight: 1, expandEdge: 1 };
 
     function wire() {
       // Cytoscape handles background drags itself; we only take over when the
       // press landed on a node, where it does nothing.
       cy.on("tapstart", function (evt) { fromNode = evt.target !== cy; });
+      // The menu stays by what was clicked, so the reader's pan or zoom
+      // closes it. The fit after a redraw does not.
+      cy.on("viewport", function () {
+        if (!byReader()) return;
+        closeChooser();
+        fitBtn.hidden = false;
+      });
 
       // One tap handler for everything, driven by actionAt, so behaviour and
       // cursor cannot drift apart.
       cy.on("tap", function (evt) {
-        if (dragged) return;      // this tap is the end of a pan, not a click
+        if (dragged) return;      // this tap ends a pan
         var act = actionAt(evt.target, evt.position);
 
-        if (act.kind === "inspect") return;      // hoverable, not pressable
-
-        if (act.kind === "pick") {
-          var id = act.node.id();
-          // A half-finished pair completes; anything else starts over, which
-          // includes clicking a variable while its answer is on screen.
-          if (query.a && !query.b) setEndpoints(query.a, id);
-          else setEndpoints(id, null);
-          return;
-        }
-
         if (act.kind === "expandEdge") {
-          var origin = midpoint(act.edge);
-          var added = expandAnswerEdge(act.edge);
-          if (added) queryChanged({ ids: keyed(added), origin: origin });
+          offerReveal(partsOf(act.edge), { holder: canvasesWrap, x: evt.renderedPosition.x,
+                                           y: evt.renderedPosition.y }, midpoint(act.edge));
           return;
         }
 
@@ -1992,8 +2011,8 @@
         if (act.kind === "open") {
           var name = groupName(act.node.id());
           openThrough(data, name, open);
-          // Light the group itself, not its members: it is the thing that
-          // changed, and it is where the eye already is.
+          // Light the group itself: it is the thing that changed, and it is
+          // where the eye already is.
           draw({ ids: keyed(G(name)) });
           return;
         }
@@ -2006,6 +2025,12 @@
         }
 
         if (act.kind !== "highlight") return;
+        // At the level the filter applies to, a click on a variable filters
+        // to it alone.
+        if (everyOpen() && !act.node.data("collapsedGroup")) {
+          filterTo([act.node.id()], { ids: keyed(act.node.id()) });
+          return;
+        }
         highlightNode(act.node);
       });
 
@@ -2023,7 +2048,6 @@
         var target = null;
         if (act.kind === "highlight") target = act.node;
         else if (act.kind === "expandEdge") target = act.edge;
-        else if (act.kind === "pick" || act.kind === "inspect") target = act.node;
         else if (act.kind === "pan" && evt.target !== cy &&
                  evt.target.isEdge && evt.target.isEdge()) target = evt.target;
 
@@ -2058,8 +2082,7 @@
     }
 
     function highlightNode(node) {
-      // Both directions, always: the one-sided options were a control to
-      // read and choose between for a filter that is a glance either way.
+      // its causes and its effects, all the way up and down
       var keep = node.union(node.predecessors().union(node.successors()));
       // keep ancestor boxes of anything retained, or members float loose
       keep = keep.union(keep.ancestors());
@@ -2078,14 +2101,12 @@
     /* ---- adjacency matrix ---- */
 
     /* Beside the graph, the same buckets as rows and columns. A cell is a
-     * direct edge, shaded by how many variable-level edges stand behind it, a
-     * causal path with no direct edge, or a correlated pair. Rows and columns
-     * are in causal order, so the matrix is upper-triangular and a cell below
-     * the diagonal means two collapsed groups depend on each other. The
-     * top-level groups show as blocks along both axes. */
-    var mxTip = control("div", { class: "cg-tip" });
-    mxTip.hidden = true;
-    mxScroll.appendChild(mxTip);
+     * direct edge, a path through hidden variables, both (hatched), a causal
+     * path through the variables shown, or none, and has a dashed outline
+     * when the two are correlated. Rows and columns are in causal order, so
+     * the matrix is upper-triangular and a cell below the diagonal means two
+     * collapsed groups depend on each other. The top-level groups show as
+     * blocks along both axes. */
     var mxTable = null;
 
     function cellKey(s, t) { return s + "\0" + t; }
@@ -2094,78 +2115,69 @@
       return '"' + String(value).replace(/["\\]/g, "\\$&") + '"';
     }
 
-    /* The matrix of the answer: the kept variables, the projection's legs as
-     * cells. A directed leg's number is how many independent routes it stands
-     * for, the same count its tooltip gives on the diagram; a bidirected leg
-     * is drawn with the correlation marker, both ways round. */
-    function computeAnswerMatrix() {
-      var Q = window.CausalGraphQuery;
-      var a = query.answer, keep = answerKeep(), pr = answerProjection();
-      var direct = {}, edgeKeys = [], routes = {}, expandable = {}, notes = {};
-      var contracted = {};
-      pr.directed.forEach(function (e) {
-        var ex = Q.explainEdge(a.model, pr, keep, e[0], e[1], "causal");
-        var k = e[0] + "\0" + e[1];
-        direct[k] = [[e[0], e[1]]];
-        edgeKeys.push([e[0], e[1]]);
-        routes[k] = ex.routes || 1;
-        expandable[k] = ex.add.length > 0;
-        contracted[k] = (ex.through || []).length > 0;
-        notes[k] = routes[k] > 1 ? routes[k] + " independent routes"
-                 : contracted[k] ? "one route" : "a direct edge";
+    /* The matrix of the summary on screen. Each cell keeps the summary's
+     * edges behind it: `direct` and `legs` for the arrows from row to column,
+     * `correlated` for the <-> between the two, both ways round. */
+    function computeMatrix() {
+      var s = viewSummary(), members = {}, bucketOf = {};
+      s.visible.forEach(function (v) {
+        var b = bucketFor(data, v, open);
+        (members[b] = members[b] || []).push(v);
+        bucketOf[v] = b;
       });
-      var correlated = {};
-      pr.bidirected.forEach(function (e) {
-        var ex = Q.explainEdge(a.model, pr, keep, e[0], e[1], "correlated");
-        var note = ex.irreducible ? "correlated by construction"
-                 : ex.latentOnly ? "via a correlation"
-                 : "shared upstream: " + ex.via.map(labelOf).join(", ");
-        [e[0] + "\0" + e[1], e[1] + "\0" + e[0]].forEach(function (k) {
-          correlated[k] = true;
-          expandable[k] = ex.add.length > 0;
-          notes[k] = note;
-        });
+      var direct = {}, legs = {}, correlated = {}, edgeKeys = [], links = [];
+      function add(map, k, e) { (map[k] = map[k] || []).push(e); }
+      s.solid.concat(s.legs).forEach(function (e) {
+        var a = bucketOf[e.source], b = bucketOf[e.target];
+        if (!a || !b || a === b) return;
+        var k = cellKey(a, b);
+        if (!direct[k] && !legs[k]) edgeKeys.push([a, b]);
+        add(e.kind === "leg" ? legs : direct, k, e);
       });
-      var succ = {};
-      keep.forEach(function (k) { succ[k] = []; });
-      pr.directed.forEach(function (e) { succ[e[0]].push(e[1]); });
-      var reach = {};
-      keep.forEach(function (from) {
-        var seen = {}, stack = succ[from].slice();
-        while (stack.length) {
-          var n = stack.pop();
-          if (seen[n]) continue;
-          seen[n] = true;
-          if (n !== from) reach[from + "\0" + n] = true;
-          succ[n].forEach(function (c) { stack.push(c); });
-        }
+      s.bidirected.forEach(function (e) {
+        var a = bucketOf[e.source], b = bucketOf[e.target];
+        if (!a || !b || a === b) return;
+        add(correlated, cellKey(a, b), e);
+        add(correlated, cellKey(b, a), e);
+        links.push([a, b]);
       });
-      var ordered = bucketOrder(data, keep, edgeKeys);
-      var labels = {}, members = {};
-      keep.forEach(function (k) {
-        labels[k] = labelOf(k);
-        members[k] = [k];
+      /* Paths and indirect correlations between the buckets as drawn, so a
+       * shared cause inside one collapsed group does not count: the diagram
+       * cannot show it. */
+      var buckets = Object.keys(members), reach = {}, far = {};
+      var dep = window.CausalGraphQuery.dependence(buckets, edgeKeys, links);
+      buckets.forEach(function (a) {
+        Object.keys(dep.reach[a]).forEach(function (b) { reach[cellKey(a, b)] = true; });
+        Object.keys(dep.apart[a]).forEach(function (b) { far[cellKey(a, b)] = true; });
       });
-      return { answer: true, order: ordered.order, cyclic: ordered.cyclic,
-               labels: labels, members: members, roles: answerRoles(keep, pr),
-               projection: pr, direct: direct, reach: reach,
-               correlated: correlated, routes: routes, contracted: contracted,
-               expandable: expandable, notes: notes };
+      var ordered = bucketOrder(data, buckets, edgeKeys);
+      var labels = {};
+      buckets.forEach(function (b) {
+        labels[b] = isGroupId(b) ? data.groups[groupName(b)].label : labelOf(b);
+      });
+      return { order: ordered.order, cyclic: ordered.cyclic, labels: labels,
+               members: members, direct: direct, legs: legs, reach: reach,
+               correlated: correlated, far: far };
     }
 
-    /* `continuous` says the diagram is tweening into this state rather than
-     * being replaced, so what is new in the matrix is worth pointing out:
+    // The summary's edges a click on a cell opens: its legs, or else its <->.
+    function cellParts(mx, k) {
+      function open(list) { return (list || []).filter(function (e) { return e.expandable; }); }
+      var legs = open(mx.legs[k]);
+      return legs.length ? legs : open(mx.correlated[k]);
+    }
+
+    /* `continuous` says the diagram tweens into this state, so what is new in the matrix is worth pointing out:
      * rows and columns that appeared fade in with their headers lit, and
      * cells among the rows that stayed, whose state changed, are outlined. */
     function renderMatrix(continuous) {
-      var answer = !!(query.showing && query.answer);
       if (mxTable) { mxScroll.removeChild(mxTable); mxTable = null; }
-      mxTip.hidden = true;
+      tip.hidden = true;
       matrix.current = null;
       container._matrixForTest = null;
-      var mx = answer ? computeAnswerMatrix() : computeMatrix(data, open, labelOf);
-      // The legend keys of the cells drawn, and whether any cell has a number.
-      var present = {}, numbered = false;
+      var mx = computeMatrix();
+      // The legend keys of the cells drawn.
+      var present = {};
       matrix.current = mx;
       var was = matrix.last;         // what the matrix showed before this one
       var fresh = {}, cells = {}, kept = 0;
@@ -2177,43 +2189,18 @@
       // With nothing kept there is nothing to mark the new against.
       if (!kept) fresh = {};
       function cellState(k) {
-        return mx.direct[k] ? "direct" : mx.correlated[k] ? "corr" : mx.reach[k] ? "reach" : "";
+        var arrow = mx.direct[k] && mx.legs[k] ? "both" : mx.direct[k] ? "direct"
+                  : mx.legs[k] ? "leg" : mx.reach[k] ? "reach" : "";
+        return arrow + (mx.correlated[k] ? "+corr" : mx.far[k] ? "+far" : "");
       }
       var n = mx.order.length;
-      var cell = Math.max(8, Math.min(18, Math.floor(540 / Math.max(n, 1))));
-      mxPane.style.setProperty("--mx-cell", cell + "px");
-      // What a dark cell's number means: routes behind a leg in the answer
-      // view, variable-level edges behind a collapsed edge in the model view.
-      function countOf(k) {
-        return mx.routes ? (mx.routes[k] || 1) : mx.direct[k].length;
-      }
-      var maxCount = 1;
-      Object.keys(mx.direct).forEach(function (k) {
-        maxCount = Math.max(maxCount, countOf(k));
-      });
-      var outdeg = {}, indeg = {};
-      mx.order.forEach(function (b) { outdeg[b] = 0; indeg[b] = 0; });
-      Object.keys(mx.direct).forEach(function (k) {
-        var st = k.split("\0");
-        outdeg[st[0]] += countOf(k);
-        indeg[st[1]] += countOf(k);
-      });
       function colourOf(b) {
-        if (mx.roles) return ROLE_COLOUR[mx.roles[b]];
         return PALETTE[(data.rootIndex[rootOf(data, b)] || 0) % PALETTE.length];
       }
       // The line between two top-level groups is drawn by the last cell of
       // the block before it, as its right or bottom border.
       function endsBlock(i) {
-        return !mx.roles && i < n - 1 &&
-               rootOf(data, mx.order[i]) !== rootOf(data, mx.order[i + 1]);
-      }
-      // A cell between two variables asks about them; in the answer view a
-      // leg that can be opened is the thing to click.
-      function clickable(s, t) {
-        if (s === t) return false;
-        if (mx.answer) return !!mx.expandable[cellKey(s, t)];
-        return !isGroupId(s) && !isGroupId(t);
+        return i < n - 1 && rootOf(data, mx.order[i]) !== rootOf(data, mx.order[i + 1]);
       }
 
       var table = control("table", { class: "cg-mx" });
@@ -2229,7 +2216,6 @@
         if (endsBlock(j)) th.classList.add("cg-mx-break");
         hrow.appendChild(th);
       });
-      hrow.appendChild(control("th", { class: "cg-mx-sum" }, "out"));
       thead.appendChild(hrow);
       table.appendChild(thead);
 
@@ -2253,18 +2239,16 @@
           }
           if (s === t) {
             td.classList.add("cg-mx-diag");
+          } else if (mx.direct[k] && mx.legs[k]) {
+            td.classList.add("cg-mx-both");
+            // the hatching is read from the keys of its two colours
+            present["cg-key-mx-both"] = present["cg-key-mx-direct"] = present["cg-key-mx-leg"] = true;
           } else if (mx.direct[k]) {
-            var count = countOf(k);
-            var leg = !!(mx.contracted && mx.contracted[k]);
             td.classList.add("cg-mx-direct");
-            if (leg) td.classList.add("cg-mx-leg");
-            present[leg ? "cg-key-mx-leg" : "cg-key-mx-direct"] = true;
-            var alpha = 0.45 + 0.55 * Math.log(1 + count) / Math.log(1 + maxCount);
-            td.style.setProperty("--mx-a", alpha.toFixed(2));
-            if (count > 1 && cell >= 12) {
-              td.textContent = String(count);
-              numbered = true;
-            }
+            present["cg-key-mx-direct"] = true;
+          } else if (mx.legs[k]) {
+            td.classList.add("cg-mx-leg");
+            present["cg-key-mx-leg"] = true;
           } else if (mx.reach[k]) {
             td.classList.add("cg-mx-reach");
             present["cg-key-mx-reach"] = true;
@@ -2272,29 +2256,27 @@
           if (mx.correlated[k]) {
             td.classList.add("cg-mx-corr");
             present["cg-key-mx-corr"] = true;
+          } else if (s !== t && mx.far[k]) {
+            td.classList.add("cg-mx-far");
+            present["cg-key-mx-far"] = true;
           }
-          if (clickable(s, t)) td.classList.add("cg-mx-clickable");
+          // a cell that stands for something hidden opens up; at the level
+          // the filter applies to, any other one filters to its pair
+          if (s !== t && (cellParts(mx, k).length || everyOpen() && !isGroupId(s) &&
+                          !isGroupId(t))) td.classList.add("cg-mx-clickable");
           tr.appendChild(td);
         });
-        tr.appendChild(control("td", { class: "cg-mx-sum" }, String(outdeg[s])));
         tbody.appendChild(tr);
       });
-      var sums = control("tr", { class: "cg-mx-sums" });
-      sums.appendChild(control("th", { class: "cg-mx-sum" }, "in"));
-      mx.order.forEach(function (t) {
-        sums.appendChild(control("td", { class: "cg-mx-sum" }, String(indeg[t])));
-      });
-      sums.appendChild(control("td", { class: "cg-mx-sum" }));
-      tbody.appendChild(sums);
       table.appendChild(tbody);
       mxScroll.appendChild(table);
       mxTable = table;
-      fitLegend(matrixLegend, !answer, present, numbered);
-      fitLegend(matrixAnswerLegend, answer, present, numbered);
+      fitLegend(matrixLegend, true, present);
+      fitCells();
       var rows = {};
       mx.order.forEach(function (b) { rows[b] = true; });
       matrix.last = { rows: rows, cells: cells };
-      // The marks are a moment's cue, like the diagram's, not a state.
+      // The marks are a moment's cue, like the diagram's, and fade.
       if (matrix.revealTimer) window.clearTimeout(matrix.revealTimer);
       matrix.revealTimer = window.setTimeout(function () {
         if (mxTable !== table) return;
@@ -2306,6 +2288,34 @@
       container._matrixForTest = mx;           // handle for headless UI tests
     }
 
+    /* The cells are as large as MX_CELL_MAX, or smaller where the table
+     * would not fit the pane otherwise, down to MX_CELL_MIN, past which the
+     * pane scrolls. The headers are measured at a size where their text is
+     * already full size. The pane's own size, scroll bars included, is what
+     * counts, so a scroll bar coming or going does not change the fit. */
+    var MX_CELL_MIN = 11, MX_CELL_MAX = 32;
+
+    function fitCells() {
+      var n = matrix.current ? matrix.current.order.length : 0;
+      if (!mxTable || !n) return;
+      mxPane.style.setProperty("--mx-cell", "12px");
+      var corner = mxTable.querySelector("th.cg-mx-corner");
+      // less the table's margins; each cell also draws one grid line
+      var w = mxScroll.offsetWidth - corner.offsetWidth - 14;
+      var h = mxScroll.offsetHeight - corner.offsetHeight - 14;
+      var cell = Math.floor(Math.min(w, h) / n) - 1;
+      cell = Math.max(MX_CELL_MIN, Math.min(MX_CELL_MAX, cell));
+      mxPane.style.setProperty("--mx-cell", cell + "px");
+    }
+
+    if (window.ResizeObserver) {
+      var fitTimer = null;
+      new window.ResizeObserver(function () {
+        if (fitTimer) window.clearTimeout(fitTimer);
+        fitTimer = window.setTimeout(fitCells, 60);
+      }).observe(mxScroll);
+    }
+
     function mxEach(selector, fn) {
       if (!mxTable) return;
       Array.prototype.forEach.call(mxTable.querySelectorAll(selector), fn);
@@ -2315,17 +2325,22 @@
       mxEach(".cg-mx-hl", function (el) { el.classList.remove("cg-mx-hl"); });
     }
 
-    /* Light a bucket's row and column headers, and the cell between two. */
+    /* Light the headers of what the pointer is on: of a cell or an edge,
+     * the cause's row and the effect's column, and the cell; of a bucket
+     * alone, its row and its column. */
     function mxMark(s, t) {
       mxClear();
       if (!mxTable) return;
-      [s, t].forEach(function (b) {
-        if (!b) return;
-        mxEach("th[data-b=" + cssQuote(b) + "]", function (el) {
-          el.classList.add("cg-mx-hl");
-        });
-      });
-      if (s && t && s !== t) {
+      function light(selector) {
+        mxEach(selector, function (el) { el.classList.add("cg-mx-hl"); });
+      }
+      if (!t) {
+        if (s) light("th[data-b=" + cssQuote(s) + "]");
+        return;
+      }
+      light("th.cg-mx-row[data-b=" + cssQuote(s) + "]");
+      light("th.cg-mx-col[data-b=" + cssQuote(t) + "]");
+      if (s !== t) {
         var td = mxTable.querySelector(
           "td[data-s=" + cssQuote(s) + "][data-t=" + cssQuote(t) + "]");
         if (td) td.classList.add("cg-mx-hl");
@@ -2360,55 +2375,35 @@
       });
     }
 
+    /* A cell's tooltip names the pair, "X to Y", the row first, and then
+     * says what the cell marks, one line for the causal effect of X on Y and
+     * one for the correlation of the two. Each is "Direct" for an arrow or
+     * a <-> on the diagram, "Indirect" for one through the variables shown,
+     * or "No". What an arrow or a <-> stands for is in the diagram's
+     * tooltip. */
     function mxTipText(s, t, mx) {
-      if (s === t) return "";
+      if (s === t || !chooser.hidden) return "";
       var k = cellKey(s, t);
-      var lead = mx.labels[s] + " \u2192 " + mx.labels[t];
-      if (mx.answer) {
-        var more = mx.expandable[k] ? "\n(click to open)" : "";
-        if (mx.direct[k]) return lead + ": " + mx.notes[k] + more;
-        if (mx.correlated[k]) {
-          return mx.labels[s] + " ↔ " + mx.labels[t] + ": " + mx.notes[k] + more;
-        }
-        if (mx.reach[k]) return lead + ": reaches through the variables shown";
-        return lead + ": no causal path";
-      }
-      var lines = [];
-      if (mx.direct[k]) {
-        var es = mx.direct[k];
-        lines.push(lead + (es.length > 1 ? ": " + es.length + " edges" : ""));
-        if (isGroupId(s) || isGroupId(t)) {
-          es.slice(0, 8).forEach(function (e) {
-            lines.push("\u2003" + labelOf(e[0]) + " \u2192 " + labelOf(e[1]));
-          });
-          if (es.length > 8) lines.push("\u2003\u2026 and " + (es.length - 8) + " more");
-        }
-      } else if (mx.reach[k]) {
-        lines.push(lead + ": a causal path, no direct edge");
-      } else if (mx.correlated[k]) {
-        lines.push(mx.labels[s] + " \u2194 " + mx.labels[t] + ": correlated");
-      } else {
-        lines.push(lead + ": no causal path");
-      }
-      if (mx.correlated[k] && (mx.direct[k] || mx.reach[k])) {
-        lines.push("also correlated");
-      }
-      if (!isGroupId(s) && !isGroupId(t)) lines.push("(click to query this pair)");
-      return lines.join("\n");
+      return [
+        mx.labels[s] + " to " + mx.labels[t],
+        mx.direct[k] || mx.legs[k] ? "Direct causal effect"
+          : mx.reach[k] ? "Indirect causal effect" : "No causal effect",
+        mx.correlated[k] ? "Direct correlation"
+          : mx.far[k] ? "Indirect correlation" : "No correlation",
+      ].join("\n");
     }
 
-    /* Positioned in the pane's own scrolled coordinates. */
+    /* Positioned against the stage, like the diagram's. */
     function showMxTip(text, evt) {
-      if (!text) { mxTip.hidden = true; return; }
-      var size = sizeTip(mxTip, text);
-      var room = mxScroll.getBoundingClientRect();
+      if (!text) { tip.hidden = true; return; }
+      var size = sizeTip(tip, text);
+      var room = stage.getBoundingClientRect();
       var px = evt.clientX - room.left, py = evt.clientY - room.top;
-      var x = px + 14;
-      x = Math.min(x, room.width - size.w - 4);
+      var x = Math.min(px + 14, room.width - size.w - 4);
       var y = py - size.h - 12;
       if (y < 4) y = py + 20;
-      mxTip.style.left = Math.round(Math.max(x, 4) + mxScroll.scrollLeft) + "px";
-      mxTip.style.top = Math.round(y + mxScroll.scrollTop) + "px";
+      tip.style.left = Math.round(Math.max(x, 4)) + "px";
+      tip.style.top = Math.round(y) + "px";
     }
 
     function mxTarget(evt) {
@@ -2424,57 +2419,56 @@
       if (hit.td) {
         var s = hit.td.getAttribute("data-s"), t = hit.td.getAttribute("data-t");
         mxMark(s, t);
-        var edges = [], dir = mx.answer ? "p" : "e", bi = mx.answer ? "q" : "c";
-        if (s !== t) {
-          if (mx.direct[cellKey(s, t)]) edges.push(dir + s + ">" + t);
-          if (mx.correlated[cellKey(s, t)]) edges.push(bi + s + ">" + t, bi + t + ">" + s);
-        }
+        var edges = s === t ? [] : ["e", "l", "c"].map(function (p) {
+          return p + s + ">" + t;
+        }).concat(["c" + t + ">" + s]);
         cyHover([s, t], edges);
         showMxTip(mxTipText(s, t, mx), evt);
       } else if (hit.th) {
         var b = hit.th.getAttribute("data-b");
         mxMark(b, null);
         cyHover([b], []);
-        var what = !mx.answer && isGroupId(b)
-          ? " (" + mx.members[b].length + " variables)" : "";
+        var what = isGroupId(b) ? " (" + mx.members[b].length + " variables)" : "";
         showMxTip(mx.labels[b] + what, evt);
       } else {
         mxClear();
         cyHover([], []);
-        mxTip.hidden = true;
+        tip.hidden = true;
       }
     });
     mxPane.addEventListener("mouseleave", function () {
       mxClear();
       cyHover([], []);
-      mxTip.hidden = true;
+      tip.hidden = true;
     });
-    /* A cell between two variables is a question about them, so clicking it
-     * asks it. A header is the node, so clicking it highlights the node. */
+    /* A cell that stands for something hidden opens up, as its edge on the
+     * diagram does. Any other cell between two variables, at the level the
+     * filter applies to, is a question about them: the filter goes to the
+     * pair. A header is the node, so clicking it highlights the node. */
     mxPane.addEventListener("click", function (evt) {
       var hit = mxTarget(evt), mx = matrix.current;
-      if (hit.td) {
+      if (hit.td && mx) {
         var s = hit.td.getAttribute("data-s"), t = hit.td.getAttribute("data-t");
         if (s === t) return;
-        if (mx && mx.answer) {
-          var k = cellKey(s, t);
-          if (!mx.expandable[k]) return;
-          // The leg on the diagram, for the new variables to start from.
-          var leg = cy ? cy.getElementById((mx.direct[k] ? "p" : "q") + s + ">" + t) : null;
-          if (leg && leg.empty()) leg = cy.getElementById("q" + t + ">" + s);
-          var origin = leg && leg.nonempty() ? midpoint(leg) : null;
-          var added = expandAnswerLeg(s, t, mx.direct[k] ? "causal" : "correlated");
-          if (added) queryChanged({ ids: keyed(added), origin: origin });
+        var els = cellParts(mx, cellKey(s, t));
+        if (!els.length) {
+          if (everyOpen() && !isGroupId(s) && !isGroupId(t)) filterTo([s, t], { ids: keyed([s, t]) });
           return;
         }
-        if (isGroupId(s) || isGroupId(t)) return;
-        if (!query.on) {
-          query.on = true;
-          queryBtn.classList.add("cg-active");
-        }
-        setEndpoints(s, t);
+        // An edge between the two on the diagram, for the new variables to
+        // start from.
+        var edge = cy ? cy.edges().filter(function (e) {
+          var a1 = e.data("source"), b1 = e.data("target");
+          return a1 === s && b1 === t || a1 === t && b1 === s;
+        }) : null;
+        var origin = edge && edge.nonempty() ? midpoint(edge[0]) : null;
+        var room = mxScroll.getBoundingClientRect();
+        offerReveal(els, {
+          holder: mxScroll,
+          x: evt.clientX - room.left + mxScroll.scrollLeft,
+          y: evt.clientY - room.top + mxScroll.scrollTop,
+        }, origin);
       } else if (hit.th && cy) {
-        if (mx && mx.answer) return;     // hoverable, not pressable, as on the diagram
         var node = cy.getElementById(hit.th.getAttribute("data-b"));
         if (node.length) toggleHighlight(node);
       }
@@ -2483,56 +2477,20 @@
 
     function saveState() {
       if (!document.body.classList.contains("cg-standalone")) return;
-      var groups = Object.keys(open).filter(function (g) { return open[g]; });
-      var parts = ["open=" + groups.map(encodeURIComponent).join(",")];
-      if (query.on && query.a && query.b) {
-        parts.push("q=" + encodeURIComponent(query.a) + "," + encodeURIComponent(query.b));
-        var opened = Object.keys(query.extra);
-        if (opened.length) parts.push("x=" + opened.map(encodeURIComponent).join(","));
-      }
-      if (query.context) parts.push("cx=" + encodeURIComponent(query.context));
-      var hash = "#" + parts.join("&");
+      var hash = viewHash(data, open, view.filter && view.shown, view.context, boxesBox.checked);
       if (window.location.hash !== hash && window.history &&
           window.history.replaceState) {
         window.history.replaceState(null, "", hash);
       }
     }
 
-    function restoreState(state) {
-      if (state.q) {
-        query.on = true;
-        queryBtn.classList.add("cg-active");
-        open = openForDepth(data, null);
-        query.context = state.cx;
-        query.a = state.q[0];
-        query.b = state.q[1];
-        runQuery();
-        query.showing = !!query.answer;
-        // Legs opened before the reload, restored as they were.
-        state.x.forEach(function (id) { query.extra[id] = true; });
-        renderPanel();
-      }
-    }
-
-    queryBtn.addEventListener("click", function () {
-      query.on = !query.on;
-      queryBtn.classList.toggle("cg-active", query.on);
-      // Queries need individual variables, so open everything on entry.
-      if (query.on) open = openForDepth(data, null);
-      resetQuery();
-      draw({ swap: true });
-      renderPanel();
-    });
-    reset.addEventListener("click", function () {
-      clearHighlight();
-      clampZoom();
-    });
     newTab.addEventListener("click", function () {
-      var url = standaloneUrl(container, open);
+      var url = standaloneUrl(container,
+        viewHash(data, open, view.filter && view.shown, view.context, boxesBox.checked));
       if (url) window.open(url, "_blank");
     });
 
-    restoreState(saved);
+    buildFilter();
     draw();
   }
 

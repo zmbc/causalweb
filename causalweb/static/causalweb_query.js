@@ -1,6 +1,6 @@
 /* Causal queries over the graph, as the viewer asks them: whether one of two
- * variables causes the other, the causes they share, the latent projection
- * onto them, and what each projected edge stands for.
+ * variables causes the other, whether they share causes, and a summary of the
+ * graph for any set of visible variables, which opens one step at a time.
  *
  * Everything here runs on the FULL variable-level graph, regardless of which
  * groups happen to be open on screen. A group-level edge does not mean every
@@ -68,12 +68,11 @@ window.CausalGraphQuery = (function () {
 
     /* Constants, and everything that is an exact function of them.
      *
-     * A constant is not a variable: it transmits no variation, so it can
-     * neither confound nor carry an influence, and conditioning on it says
-     * nothing, so it cannot open a collider path either. Cutting its edges is
-     * what makes every later step agree about that -- D-separation, adjustment
-     * sets, the projection and its explanations -- instead of each one having
-     * to remember. */
+     * A constant transmits no variation, so it can neither confound nor
+     * carry an influence, and conditioning on it says nothing, so it cannot
+     * open a collider path either. Cutting its edges makes every later step
+     * agree about that: D-separation, adjustment sets, the projection and its
+     * explanations. */
     m.held = determined(m, data.fixed || []);
     keys(m.held).forEach(function (v) {
       (m.children[v] || []).slice().forEach(function (c) { unlink(m, v, c); });
@@ -157,118 +156,19 @@ window.CausalGraphQuery = (function () {
     return cut;
   }
 
-  /* ---- why: the variables upstream of both ---------------------------- */
-
-  /* What the two variables share upstream.
-   *
-   * With nothing conditioned there are no open colliders, so every back-door
-   * path from x to y has exactly one fork and reads x <- ... <- C -> ... -> y.
-   * The complete reason for the dependence is therefore a LIST OF VARIABLES,
-   * not a list of paths -- which is what makes it short enough to state.
-   *
-   * `lowest` drops any C that has another such C below it: a variable further
-   * up the same stream adds nothing except distance. Those stay in `above` and
-   * can be walked to. */
-  function sharedCauses(m, x, y) {
-    var cut = withoutOutgoing(m, x);
-    var upX = ancestors(m, [x]);
-    var upY = ancestors(cut, [y]);
-    var fixed = determined(m, []);
-    var all = keys(upX).filter(function (v) {
-      /* Fixed with nothing conditioned means constant, so it varies with
-       * nothing and heads no open path. */
-      return upY[v] && v !== x && v !== y && !fixed[v];
-    });
-
-    /* Cut the list down to one that accounts for everything.
-     *
-     * Leave a shared cause out and the projection grows a bidirected edge
-     * standing for it: a dependence the picture asserts but cannot attribute
-     * to anything on it. Keeping the whole list never does that -- a variable
-     * outside the list reaching both ends would itself be on the list -- so
-     * pruning from the full list is safe. Taking the most distant out first
-     * leaves the nearest set that still explains itself.
-     *
-     * A declared correlation is exempt: it IS in the model, so drawing it
-     * asserts nothing that is not there. */
-    var depth = depthOf(m);
-    var order = all.slice().sort(function (a, b) { return depth[b] - depth[a]; });
-    var kept = all.slice();
-    order.forEach(function (c) {
-      var without = kept.filter(function (v) { return v !== c; });
-      if (!unexplained(m, x, y, drawable(m, without, x, y)).length) kept = without;
-    });
-
-    var inKept = setOf(kept);
-    return {
-      all: all.slice().sort(),
-      sufficient: kept.slice().sort(),
-      drawn: drawable(m, kept, x, y).sort(),
-      above: all.filter(function (c) { return !inKept[c]; }).sort(),
-    };
-  }
-
-  /* A correlation has no node of its own, so it is stood in for by the two
-   * variables it joins: the dependence then sits between them, which is
-   * where it actually is, and it is drawn as the declared edge it is. */
-  function drawable(m, causes, x, y) {
-    var out = [];
-    causes.forEach(function (c) {
-      var list = m.latent[c] ? (m.children[c] || []) : [c];
-      list.forEach(function (v) {
-        if (v !== x && v !== y && out.indexOf(v) < 0) out.push(v);
-      });
-    });
-    return out;
-  }
-
-  /* Bidirected edges the projection would draw that the model does not have:
-   * each one asserts a dependence and attributes it to nothing on screen. */
-  function unexplained(m, x, y, keep) {
-    return project(m, [x, y].concat(keep)).bidirected.filter(function (e) {
-      return !m.declared[e[0] + ">" + e[1]];
-    });
-  }
-
-  /* Longest path from a root, per variable. Orders pruning, nothing else. */
-  function depthOf(m) {
-    if (m.depth) return m.depth;
-    var depth = {};
-    function walk(v) {
-      if (v in depth) return depth[v];
-      depth[v] = 0;                      // acyclic, so this is never read back
-      var best = 0;
-      (m.parents[v] || []).forEach(function (p) {
-        best = Math.max(best, walk(p) + 1);
-      });
-      depth[v] = best;
-      return best;
-    }
-    keys(m.parents).forEach(walk);
-    m.depth = depth;
-    return depth;
-  }
-
-  /* The narrowest waist of a leg, and how many routes run through it.
-   *
-   * A leg between two variables stands for every directed route between them,
-   * and there is usually no single variable they all pass through -- in this
-   * model there is essentially never one. The smallest SET they all pass
-   * through is the honest summary, and by Menger's theorem its size is the
-   * number of routes that share no variable at all. That count is what belongs
-   * on an unexpanded leg: enumerating paths instead double-counts every route
-   * that overlaps another.
+  /* The narrowest waist of a leg: the smallest set of variables that every
+   * route between its ends passes through. A leg stands for every directed
+   * route between two variables, and usually no single variable lies on all
+   * of them.
    *
    * Minimum vertex cut by max flow, each interior variable split into an entry
    * and an exit joined by a unit edge, so a saturated edge is a chosen
    * variable. The cut returned is the one nearest the source, which reads as
-   * "what happens first"; other minimum cuts of the same size exist. */
+   * "what happens first". Other minimum cuts of the same size exist. */
   function legWaist(m, from, to, keep) {
     /* Only routes the leg actually stands for. The projection stops at kept
      * variables, so a route through one of them is drawn as its own pair of
-     * legs and must not be counted or cut here -- counting it also offered a
-     * waist that was already on screen, which looked like a click doing
-     * nothing. */
+     * legs and must not be cut here. */
     var off = setOf(keep || []);
     var mid = descendants(m, [from]);
     var up = ancestors(m, [to]);
@@ -276,12 +176,9 @@ window.CausalGraphQuery = (function () {
       return up[v] && v !== from && v !== to && !off[v];
     });
     /* A direct edge is a route with no interior, so no choice of interior
-     * variables can intercept it. It is counted but cannot be cut, and it is
-     * kept out of the flow network: every source-to-sink path there has to
-     * cross a unit-capacity split edge, or the sentinel capacity on the
-     * structural edges becomes the bottleneck and lands in the count. */
-    var direct = (m.children[from] || []).indexOf(to) >= 0 ? 1 : 0;
-    if (!inner.length) return { routes: direct, waist: [] };
+     * variables can intercept it. It stays out of the flow network: every
+     * source-to-sink path there has to cross a unit-capacity split edge. */
+    if (!inner.length) return [];
 
     var innerSet = setOf(inner);
     var cap = {}, adj = {};
@@ -296,7 +193,7 @@ window.CausalGraphQuery = (function () {
     inner.concat([from]).forEach(function (v) {
       (m.children[v] || []).forEach(function (c) {
         if (innerSet[c]) link(v + "|out", c + "|in", BIG);
-        // the direct from->to edge is deliberately not linked: see above
+        // the direct from->to edge stays out: see above
         else if (c === to && v !== from) link(v + "|out", T, BIG);
       });
     });
@@ -315,7 +212,6 @@ window.CausalGraphQuery = (function () {
       return seen;
     }
 
-    var routes = 0;
     for (;;) {
       // one augmenting path at a time; capacities here are tiny integers
       var prev = {}, stack = [S], found = false;
@@ -346,24 +242,23 @@ window.CausalGraphQuery = (function () {
         cap[e[0] + "\0" + e[1]] -= bottleneck;
         cap[e[1] + "\0" + e[0]] = (cap[e[1] + "\0" + e[0]] || 0) + bottleneck;
       });
-      routes += bottleneck;
     }
 
     var side = residualReach();
     var waist = inner.filter(function (v) {
       return side[v + "|in"] && !side[v + "|out"];
     });
-    return { routes: routes + direct, waist: waist.sort() };
+    return waist.sort();
   }
 
   /* ---- latent projection ---------------------------------------------- */
 
-  /* Project onto `keep`, preserving every d-separation among those variables.
-   *
-   * Chains through projected-out nodes contract to a single directed edge;
-   * common causes that are projected out reappear as bidirected edges. So the
-   * answer to "is this confounded" becomes a visible `<->` rather than a path
-   * you have to trace. */
+  /* The bidirected edges of the projection onto `keep`, which preserves
+   * every d-separation among those variables: common causes that are
+   * projected out reappear as bidirected edges. So the answer to "is this
+   * confounded" becomes a visible `<->`. `forks` holds the projected-out common causes behind each one.
+   * (The directed edges, chains through projected-out nodes, are the
+   * summary's legs.) */
   function project(m, keep) {
     var K = setOf(keep);
     function reach(from) {
@@ -378,14 +273,9 @@ window.CausalGraphQuery = (function () {
       return out;
     }
     var reachOf = {};
-    keys(m.parents).forEach(function (n) { reachOf[n] = reach(n); });
+    keys(m.parents).forEach(function (n) { if (!K[n]) reachOf[n] = reach(n); });
 
-    var directed = [], bidirected = [], forks = {};
-    keep.forEach(function (a) {
-      keys(reachOf[a]).forEach(function (b) {
-        if (a !== b) directed.push([a, b]);
-      });
-    });
+    var bidirected = [], forks = {};
     keys(m.parents).forEach(function (c) {
       if (K[c]) return;                               // only projected-out forks
       var hits = keys(reachOf[c]).sort();
@@ -400,7 +290,7 @@ window.CausalGraphQuery = (function () {
       var pair = key.split("|");
       bidirected.push([pair[0], pair[1]]);
     });
-    return { directed: directed, bidirected: bidirected, forks: forks };
+    return { bidirected: bidirected, forks: forks };
   }
 
   /* ---- explaining a projected edge ------------------------------------ */
@@ -427,168 +317,526 @@ window.CausalGraphQuery = (function () {
     return keys(fwd).filter(function (n) { return bwd[n]; }).sort();
   }
 
-  /* The common causes behind a bidirected edge, most explanatory first.
-   *
-   * A pair typically has many responsible forks, most of them ancestors of
-   * each other -- naming all of them explains nothing.
-   *
-   * First preference is a fork with a direct edge to BOTH endpoints: that
-   * renders as two plain arrows and needs no further unpacking. Failing that,
-   * the lowest forks, since a fork that is an ancestor of another responsible
-   * fork is further away and says less. Those may still reach the endpoints
-   * through contracted chains, which can be expanded in turn. */
-  function nearestForks(m, projection, a, b) {
-    var key = a < b ? a + "|" + b : b + "|" + a;
-    var all = (projection.forks || {})[key] || [];
-    var observed = all.filter(function (c) { return !m.latent[c]; });
-    var pool = observed.length ? observed : all;
-
-    var direct = pool.filter(function (c) {
-      var kids = m.children[c] || [];
-      return kids.indexOf(a) >= 0 && kids.indexOf(b) >= 0;
-    });
-    if (direct.length) {
-      return { nearest: direct.sort(), all: all.slice().sort(),
-               latentOnly: !observed.length, direct: true };
-    }
-
-    var lowest = pool.filter(function (c) {
-      var below = descendants(m, [c]);
-      return !pool.some(function (other) {
-        return other !== c && below[other];
-      });
-    });
-    return { nearest: lowest.sort(), all: all.slice().sort(),
-             latentOnly: !observed.length, direct: false };
-  }
-
-  /* What to add to the view to explain one projected edge.
-   *
-   * One step at a time, deliberately. Revealing every intermediate at once
-   * puts up to fifteen nodes on screen and trades one unreadable picture for
-   * another; a single hop can be read, and clicking again walks further. The
-   * counts let the caller say how much is still hidden. */
-  function explainEdge(m, projection, keep, a, b, kind) {
-    if (kind === "correlated") {
-      var f = nearestForks(m, projection, a, b);
-      if (f.latentOnly) {
-        /* No observed fork explains this pair: the dependence bottoms out in a
-         * declared correlation. Reveal the two variables that correlation
-         * joins instead, so the irreducible `<->` ends up between them --
-         * where it actually is -- rather than floating between two distant
-         * variables with nothing to account for it. */
-        var pair = [];
-        f.all.forEach(function (u) {
-          (m.children[u] || []).forEach(function (c) { pair.push(c); });
-        });
-        pair = uniqueSorted(pair).filter(function (c) {
-          return c !== a && c !== b;
-        });
-        return { add: pair, latentOnly: true, via: f.all, hidden: 0,
-                 irreducible: !pair.length };
-      }
-      return { add: f.nearest, latentOnly: false, via: f.nearest,
-               direct: !!f.direct, hidden: f.all.length - f.nearest.length };
-    }
-    /* A directed leg opens at its narrowest waist rather than at its first
-     * hop. The first hop is an accident of where the routes happen to start
-     * diverging; the waist is the set they all have to pass through, so
-     * revealing it splits the leg without hiding any route. */
-    var waist = legWaist(m, a, b, keep);
-    var through = pathNodes(m, a, b, keep);
-    return { add: waist.waist.slice(), latentOnly: false, via: [],
-             routes: waist.routes,
-             hidden: through.length - waist.waist.length, through: through };
-  }
-
-  /* Add whatever the picture needs to stop asserting something it cannot
-   * attribute. Opening a leg grows the kept set, and a bigger kept set can
-   * expose a fork that was previously hidden behind one of its own
-   * descendants, so the condition has to be restored after every change
-   * rather than only when the query is first run. */
-  function closeUnexplained(m, x, y, keep) {
-    var out = keep.slice();
-    for (var round = 0; round < keys(m.parents).length; round++) {
-      var artefacts = unexplained(m, x, y, out);
-      if (!artefacts.length) return out;
-      var pr = project(m, [x, y].concat(out));
-      var grew = false;
-      artefacts.forEach(function (e) {
-        var f = nearestForks(m, pr, e[0], e[1]);
-        drawable(m, f.nearest, x, y).forEach(function (v) {
-          if (out.indexOf(v) < 0) { out.push(v); grew = true; }
-        });
-      });
-      if (!grew) return out;        // nothing left to add; leave it as it is
-    }
-    return out;
-  }
-
   function uniqueSorted(list) {
     var seen = {}, out = [];
     list.forEach(function (k) { if (!seen[k]) { seen[k] = true; out.push(k); } });
     return out.sort();
   }
 
-  /* ---- the query ------------------------------------------------------- */
+  /* ---- the summary for a set of visible variables --------------------- */
 
-  /* A query is an unordered pair.
+  /* The summary is the latent projection onto the visible variables, with one
+   * change: a leg (a directed edge that stands for routes through hidden
+   * variables) is split into one leg per part of its hidden variables, where
+   * no edge joins two parts. So routes that share no variable are drawn as
+   * separate legs. Solid edges are the graph's own edges between visible
+   * variables. A <-> stands for a hidden common cause, or a declared
+   * correlation, that reaches both ends through hidden variables only. Like
+   * the projection, the summary keeps every d-separation among the visible
+   * variables, and with every variable visible it is the graph itself. */
+
+  /* Each variable's position in an order where every cause comes before its
+   * effects. Ties keep the order of the file. */
+  function causalOrder(m) {
+    if (m.order) return m.order;
+    var indegree = {}, order = {}, ready = [], next = 0;
+    keys(m.parents).forEach(function (v) {
+      if (m.latent[v]) return;
+      indegree[v] = (m.parents[v] || []).filter(function (p) {
+        return !m.latent[p];
+      }).length;
+      if (!indegree[v]) ready.push(v);
+    });
+    while (ready.length) {
+      var v = ready.shift();
+      order[v] = next++;
+      (m.children[v] || []).forEach(function (c) {
+        indegree[c] -= 1;
+        if (!indegree[c]) ready.push(c);
+      });
+    }
+    m.order = order;
+    return order;
+  }
+
+  /* Visible variables reachable from a through hidden variables only, not
+   * counting a's own edges to visible variables. */
+  function legTargets(m, a, V) {
+    var out = {}, seen = {}, stack = [];
+    (m.children[a] || []).forEach(function (c) { if (!V[c]) stack.push(c); });
+    while (stack.length) {
+      var n = stack.pop();
+      if (seen[n]) continue;
+      seen[n] = true;
+      (m.children[n] || []).forEach(function (c) {
+        if (V[c]) out[c] = true;
+        else stack.push(c);
+      });
+    }
+    return keys(out).sort();
+  }
+
+  /* Split hidden variables into parts that no edge joins. */
+  function parts(m, hidden) {
+    var H = setOf(hidden), seen = {}, out = [];
+    hidden.slice().sort().forEach(function (start) {
+      if (seen[start]) return;
+      var part = [], stack = [start];
+      seen[start] = true;
+      while (stack.length) {
+        var n = stack.pop();
+        part.push(n);
+        (m.children[n] || []).concat(m.parents[n] || []).forEach(function (v) {
+          if (H[v] && !seen[v]) { seen[v] = true; stack.push(v); }
+        });
+      }
+      out.push(part.sort());
+    });
+    return out;
+  }
+
+  /* Everything except `inside` and the two ends, for legWaist to ignore. */
+  function outside(m, inside, a, b) {
+    var I = setOf(inside.concat([a, b]));
+    return keys(m.parents).filter(function (n) { return !I[n]; });
+  }
+
+  function summarize(m, visible) {
+    var vis = uniqueSorted(visible);
+    var V = setOf(vis);
+    var order = causalOrder(m);
+    var solid = [], legs = [], bidirected = [];
+
+    vis.forEach(function (a) {
+      (m.children[a] || []).forEach(function (c) {
+        if (V[c]) solid.push({ id: "s|" + a + "|" + c, kind: "solid", source: a, target: c });
+      });
+    });
+
+    vis.forEach(function (a) {
+      legTargets(m, a, V).forEach(function (b) {
+        parts(m, pathNodes(m, a, b, vis)).forEach(function (part, k) {
+          legs.push({
+            id: "l|" + a + "|" + b + "|" + k, kind: "leg", source: a, target: b,
+            hidden: part, expandable: true,
+          });
+        });
+      });
+    });
+
+    var pr = project(m, vis);
+    pr.bidirected.forEach(function (pair) {
+      var a = pair[0], b = pair[1];
+      var forks = (pr.forks[a + "|" + b] || []).slice().sort();
+      // a declared correlation joining exactly these two cannot be opened
+      var declared = forks.filter(function (f) {
+        var kids = (m.children[f] || []).slice().sort();
+        return m.latent[f] && kids.length === 2 && kids[0] === a && kids[1] === b;
+      });
+      /* A <-> has no direction, but a layered layout treats every edge as
+       * pointing from source to target. Pointing it along the causal order
+       * keeps the picture free of cycles, so the layout never has to turn a
+       * directed edge upward to break one. */
+      var first = order[a] <= order[b] ? a : b;
+      bidirected.push({
+        id: "b|" + a + "|" + b, kind: "bi", source: first, target: first === a ? b : a,
+        declared: declared.length > 0,
+        expandable: forks.length > declared.length,
+      });
+    });
+
+    return { visible: vis, solid: solid, legs: legs, bidirected: bidirected };
+  }
+
+  function elements(s) {
+    return s.solid.concat(s.legs, s.bidirected);
+  }
+
+  /* ---- the common causes behind a <-> --------------------------------- */
+
+  /* Hidden ancestors of x that reach it through hidden variables only,
+   * leaving out the latent parents in `skip`. */
+  function hiddenAncestors(m, x, V, skip) {
+    var seen = {}, stack = [x];
+    while (stack.length) {
+      (m.parents[stack.pop()] || []).forEach(function (p) {
+        if (!V[p] && !skip[p] && !seen[p]) { seen[p] = true; stack.push(p); }
+      });
+    }
+    return seen;
+  }
+
+  /* Declared correlations that join a and b themselves. Nothing hidden
+   * explains them, so they are left out of the search for causes. */
+  function directCorrelations(m, a, b) {
+    var out = {};
+    keys(m.latent).forEach(function (u) {
+      var kids = (m.children[u] || []).slice().sort();
+      if (kids.length === 2 && kids[0] === [a, b].sort()[0] && kids[1] === [a, b].sort()[1]) {
+        out[u] = true;
+      }
+    });
+    return out;
+  }
+
+  /* The smallest set of hidden variables that every chain of shared causes
+   * between a and b passes through, nearest a. A chain goes up from a through
+   * hidden variables to a common cause, and down from there through hidden
+   * variables to b. Common causes are what explains a <->, so only they may
+   * be in the set, and the variables a declared correlation joins, since
+   * they stand in for its cause. Every chain turns at a common cause, so a
+   * set exists whenever a chain does.
    *
-   * Order is not a question the graph can be asked: it is acyclic, so at most
-   * one of the two causes the other, and which one is a fact to report rather
-   * than an input to supply. The pair is oriented internally because the
-   * back-door test has to cut the outgoing edges of the causing variable --
-   * and when neither causes the other there are no such edges on any path
-   * between them, so the choice is immaterial. */
-  function analyze(data, a, b) {
-    var m = build(data);
-    var forward = a !== b && !!descendants(m, [a])[b];
-    var backward = a !== b && !!descendants(m, [b])[a];
-    var x = backward ? b : a;
-    var y = backward ? a : b;
-    var desc = descendants(m, [x]);
-    var shared = sharedCauses(m, x, y);
-    // Shown as a fork: the endpoints, plus the variables they share upstream.
-    var keep = [x, y].concat(shared.drawn);
-    var seen = {}, uniq = [];
-    keep.forEach(function (k) { if (!seen[k]) { seen[k] = true; uniq.push(k); } });
-    return {
-      pair: [a, b],
-      // internal orientation; the two are drawn and described alike
-      from: x,
-      to: y,
-      fromIsConstant: !!(m.held || {})[x],
-      toIsConstant: !!(m.held || {})[y],
-      // which one causes the other, or null when neither does
-      causes: (forward || backward) ? [x, y] : null,
-      hasDirectedPath: !!desc[y] && x !== y,
-      /* With nothing conditioned on, a back-door path from x to y is open
-       * exactly when some variable is an ancestor of both, once x's outgoing
-       * edges are cut. `shared.all` lists those ancestors. */
-      confounded: shared.all.length > 0,
-      shared: shared,
-      // how many variables the naive "everything upstream" view would show
-      relevantCount: keys(ancestors(m, [x, y])).length,
-      keep: uniq,
-      projection: project(m, uniq),
-      model: m,
-    };
+   * A minimum cut, by max flow over two copies of the hidden variables: the
+   * chain's way up, and its way down from the common cause. Each variable is
+   * split into an entry and an exit joined by an edge whose capacity is its
+   * cost; every other edge is unlimited. A variable on the way up and on the
+   * way down of different chains is paid for on each, so the cut found from
+   * one end can be larger than it needs to be; candidates come from both
+   * ends. */
+  function causeCut(m, visible, a, b) {
+    var V = setOf(visible), skip = directCorrelations(m, a, b);
+    var upA = hiddenAncestors(m, a, V, skip), upB = hiddenAncestors(m, b, V, skip);
+    var cause = {};
+    keys(upA).forEach(function (v) { if (upB[v]) cause[v] = true; });
+    var stands = {};          // variables a declared correlation behind the pair joins
+    keys(cause).forEach(function (u) {
+      if (m.latent[u]) (m.children[u] || []).forEach(function (c) { stands[c] = true; });
+    });
+    var INF = 1e9, cap = {}, adj = {};
+    function cost(v) {
+      if (m.latent[v]) return INF;
+      return cause[v] || stands[v] ? 1 : INF;
+    }
+    function link(x, y, c) {
+      cap[x + "\0" + y] = (cap[x + "\0" + y] || 0) + c;
+      (adj[x] = adj[x] || {})[y] = true;
+      (adj[y] = adj[y] || {})[x] = true;
+    }
+    var S = "|S", T = "|T";
+    keys(upA).forEach(function (v) { link("u>" + v, "u<" + v, cost(v)); });
+    keys(upB).forEach(function (v) { link("d>" + v, "d<" + v, cost(v)); });
+    (m.parents[a] || []).forEach(function (p) { if (upA[p]) link(S, "u>" + p, INF); });
+    keys(upA).forEach(function (v) {
+      (m.parents[v] || []).forEach(function (p) { if (upA[p]) link("u<" + v, "u>" + p, INF); });
+      if (!cause[v]) return;
+      // the chain turns at a common cause and goes down towards b
+      (m.children[v] || []).forEach(function (c) {
+        if (c === b) link("u<" + v, T, INF);
+        else if (upB[c]) link("u<" + v, "d>" + c, INF);
+      });
+    });
+    keys(upB).forEach(function (v) {
+      (m.children[v] || []).forEach(function (c) {
+        if (c === b) link("d<" + v, T, INF);
+        else if (upB[c]) link("d<" + v, "d>" + c, INF);
+      });
+    });
+
+    var flow = 0;
+    for (;;) {
+      var prev = {}, queue = [S], found = false;
+      prev[S] = null;
+      while (queue.length && !found) {
+        var u = queue.shift(), ws = keys(adj[u] || {});
+        for (var i = 0; i < ws.length; i++) {
+          var w = ws[i];
+          if (!(w in prev) && (cap[u + "\0" + w] || 0) > 0) {
+            prev[w] = u;
+            if (w === T) { found = true; break; }
+            queue.push(w);
+          }
+        }
+      }
+      if (!found) break;
+      var bottleneck = INF, n = T;
+      while (prev[n] !== null) { bottleneck = Math.min(bottleneck, cap[prev[n] + "\0" + n]); n = prev[n]; }
+      n = T;
+      while (prev[n] !== null) {
+        var q = prev[n];
+        cap[q + "\0" + n] -= bottleneck;
+        cap[n + "\0" + q] = (cap[n + "\0" + q] || 0) + bottleneck;
+        n = q;
+      }
+      flow += bottleneck;
+      if (flow >= INF) return null;
+    }
+    var side = {}, stack = [S];
+    side[S] = true;
+    while (stack.length) {
+      var x = stack.pop();
+      keys(adj[x] || {}).forEach(function (y) {
+        if (!side[y] && (cap[x + "\0" + y] || 0) > 0) { side[y] = true; stack.push(y); }
+      });
+    }
+    var cut = {};
+    keys(upA).forEach(function (v) { if (side["u>" + v] && !side["u<" + v]) cut[v] = true; });
+    keys(upB).forEach(function (v) { if (side["d>" + v] && !side["d<" + v]) cut[v] = true; });
+    return keys(cut).sort();
+  }
+
+  /* Whether revealing `set` leaves no chain of shared causes between a and
+   * b: no hidden variable reaches both through hidden variables only. A
+   * declared correlation between a and b themselves is left out. */
+  function blocks(m, visible, a, b, set) {
+    var V = setOf(visible.concat(set)), skip = directCorrelations(m, a, b);
+    var upA = hiddenAncestors(m, a, V, skip), upB = hiddenAncestors(m, b, V, skip);
+    return !keys(upA).some(function (v) { return upB[v]; });
+  }
+
+  // whether a member of `set` lies downstream of another member
+  function nested(m, set) {
+    var S = setOf(set);
+    return set.some(function (v) {
+      var seen = {}, stack = (m.children[v] || []).slice();
+      while (stack.length) {
+        var n = stack.pop();
+        if (S[n]) return true;
+        if (seen[n]) continue;
+        seen[n] = true;
+        (m.children[n] || []).forEach(function (c) { stack.push(c); });
+      }
+      return false;
+    });
+  }
+
+  /* The better of the cuts found from each end, with any member left out
+   * that the others do without. A member that only stands in for a declared
+   * correlation's cause counts as two. */
+  function causeSet(m, visible, a, b) {
+    var V = setOf(visible), none = {};
+    var upA = hiddenAncestors(m, a, V, none), upB = hiddenAncestors(m, b, V, none);
+    function cost(set) {
+      return set.reduce(function (n, v) { return n + (upA[v] && upB[v] ? 1 : 2); }, 0);
+    }
+    // of two equally small sets, one with no member downstream of another
+    // reads as alternatives, which is what it is
+    var found = [causeCut(m, visible, a, b), causeCut(m, visible, b, a)]
+      .filter(Boolean).sort(function (x, y) {
+        return cost(x) - cost(y) || (nested(m, x) ? 1 : 0) - (nested(m, y) ? 1 : 0);
+      });
+    if (!found.length) return null;
+    var set = found[0].slice();
+    set.slice().forEach(function (v) {
+      var rest = set.filter(function (u) { return u !== v; });
+      if (rest.length && blocks(m, visible, a, b, rest)) set = rest;
+    });
+    return set;
+  }
+
+  /* Variables of a leg that every one of its routes passes through, each with
+   * how unevenly it splits the leg's other hidden variables. */
+  function seriesVariables(m, leg) {
+    var a = leg.source, b = leg.target, P = setOf(leg.hidden), out = [];
+    leg.hidden.forEach(function (v) {
+      var up = {}, stack = [], reached = false;
+      (m.children[a] || []).forEach(function (c) { if (P[c] && c !== v) stack.push(c); });
+      while (stack.length) {
+        var n = stack.pop();
+        if (up[n]) continue;
+        up[n] = true;
+        (m.children[n] || []).forEach(function (c) {
+          if (c === b) reached = true;
+          else if (P[c] && c !== v) stack.push(c);
+        });
+      }
+      if (reached) return;
+      var before = keys(up).length;
+      out.push({ v: v, uneven: Math.abs(before - (leg.hidden.length - 1 - before)) });
+    });
+    return out;
+  }
+
+  /* ---- the route of a leg, in a few steps ----------------------------- */
+
+  /* Hidden variables of the leg on routes from x to y that pass no stop. */
+  function stretch(m, x, y, P, stops) {
+    function sweep(start, key) {
+      var seen = {}, stack = (m[key][start] || []).slice();
+      while (stack.length) {
+        var n = stack.pop();
+        if (seen[n] || !P[n] || stops[n]) continue;
+        seen[n] = true;
+        (m[key][n] || []).forEach(function (v) { stack.push(v); });
+      }
+      return seen;
+    }
+    var fwd = sweep(x, "children"), bwd = sweep(y, "parents");
+    return keys(fwd).filter(function (n) { return bwd[n]; });
+  }
+
+  /* For each variable of `inner`, the share of the routes from x to y
+   * through `inner` that pass it. */
+  function routeShares(m, x, y, inner) {
+    var order = causalOrder(m), I = setOf(inner);
+    var sorted = inner.slice().sort(function (u, v) { return order[u] - order[v]; });
+    var up = {}, down = {}, out = {};
+    sorted.forEach(function (v) {
+      up[v] = (m.parents[v] || []).reduce(function (t, p) {
+        return t + (p === x ? 1 : I[p] ? up[p] || 0 : 0);
+      }, 0);
+    });
+    sorted.slice().reverse().forEach(function (v) {
+      down[v] = (m.children[v] || []).reduce(function (t, c) {
+        return t + (c === y ? 1 : I[c] ? down[c] || 0 : 0);
+      }, 0);
+    });
+    var total = (m.children[x] || []).reduce(function (t, c) { return t + (I[c] ? down[c] : 0); }, 0);
+    sorted.forEach(function (v) { out[v] = total ? up[v] * down[v] / total : 0; });
+    return out;
+  }
+
+  /* The route of a leg in a few steps, for its tooltip.
+   *
+   * A variable that every route passes is a step of its own, in causal
+   * order: { names: [v] }. Between two such variables, or an end, the routes
+   * run side by side. There the smallest set of variables they all pass,
+   * nearest the start, is a step: { names: [...], set: true }, the variables
+   * that most routes pass first. The hidden variables before that set, and
+   * after it, are each a gap: { gap: true }. A stretch that a direct edge
+   * skips is one gap as a whole, since not every route passes its set. */
+  function routeSteps(m, leg) {
+    var order = causalOrder(m), P = setOf(leg.hidden);
+    function byOrder(u, v) { return order[u] - order[v]; }
+    var series = seriesVariables(m, leg).map(function (x) { return x.v; }).sort(byOrder);
+    var stopList = [leg.source].concat(series, [leg.target]);
+    var stops = setOf(stopList), steps = [];
+    for (var i = 0; i + 1 < stopList.length; i++) {
+      var x = stopList[i], y = stopList[i + 1];
+      var inner = stretch(m, x, y, P, stops);
+      if (inner.length) {
+        // a direct edge between the leg's own ends is drawn apart from it
+        var ends = x === leg.source && y === leg.target;
+        if (!ends && (m.children[x] || []).indexOf(y) >= 0) {
+          steps.push({ gap: true });
+        } else {
+          var share = routeShares(m, x, y, inner);
+          var cut = legWaist(m, x, y, outside(m, inner, x, y)).sort(function (u, v) {
+            return share[v] - share[u] || byOrder(u, v);
+          });
+          // before the set: what some route reaches without passing a member
+          var C = setOf(cut), inside = setOf(inner), early = {}, stack = [x];
+          while (stack.length) {
+            (m.children[stack.pop()] || []).forEach(function (c) {
+              if (inside[c] && !C[c] && !early[c]) { early[c] = true; stack.push(c); }
+            });
+          }
+          var before = inner.some(function (n) { return early[n]; });
+          var after = inner.some(function (n) { return !C[n] && !early[n]; });
+          if (before) steps.push({ gap: true });
+          steps.push({ names: cut, set: true });
+          if (after) steps.push({ gap: true });
+        }
+      }
+      if (i + 2 < stopList.length) steps.push({ names: [y] });
+    }
+    return steps;
+  }
+
+  // the variables in causal order
+  function inOrder(m, ids) {
+    var order = causalOrder(m);
+    return ids.slice().sort(function (u, v) { return order[u] - order[v]; });
+  }
+
+  /* ---- any directed graph --------------------------------------------- */
+
+  /* These take a graph as its `nodes` and its `edges`, each edge a
+   * [source, target] pair. The edges may form cycles. */
+
+  /* The nodes with causes before effects. Of the nodes ready at each step,
+   * the one first in `rank`, a map from node to number, comes next. Nodes on
+   * a cycle, and those after one, cannot be placed: they are `left`, in rank
+   * order. */
+  function topoOrder(nodes, edges, rank) {
+    var succ = {}, indeg = {}, seen = {};
+    nodes.forEach(function (n) { succ[n] = []; indeg[n] = 0; });
+    edges.forEach(function (e) {
+      var k = e[0] + "\0" + e[1];
+      if (e[0] === e[1] || seen[k]) return;
+      seen[k] = true;
+      succ[e[0]].push(e[1]);
+      indeg[e[1]] += 1;
+    });
+    function byRank(a, b) { return rank[a] - rank[b]; }
+    var ready = nodes.filter(function (n) { return !indeg[n]; }), order = [], done = {};
+    while (ready.length) {
+      ready.sort(byRank);
+      var n = ready.shift();
+      order.push(n);
+      done[n] = true;
+      succ[n].forEach(function (t) { if (--indeg[t] === 0) ready.push(t); });
+    }
+    var left = nodes.filter(function (n) { return !done[n]; }).sort(byRank);
+    return { order: order, left: left };
+  }
+
+  /* How the nodes depend on each other, where `links` ([a, b] pairs) are
+   * <-> between them. `reach[a][b]` when a path of edges leads from a to b.
+   * `apart[a][b]`, and `apart[b][a]`, when a and b are correlated other
+   * than by such a path or a link between them: through a shared cause, or
+   * a link from one of them, or from a cause of one, to a cause of the
+   * other. With nothing conditioned on, that is a common ancestor of the
+   * two once the edges out of both, and the link between them, are left
+   * out. */
+  function dependence(nodes, edges, links) {
+    var parents = {}, children = {}, reach = {}, apart = {};
+    nodes.forEach(function (n) {
+      parents[n] = []; children[n] = []; reach[n] = {}; apart[n] = {};
+    });
+    edges.forEach(function (e) {
+      parents[e[1]].push(e[0]);
+      children[e[0]].push(e[1]);
+    });
+    nodes.forEach(function (from) {
+      var seen = {}, stack = children[from].slice();
+      while (stack.length) {
+        var n = stack.pop();
+        if (seen[n]) continue;
+        seen[n] = true;
+        if (n !== from) reach[from][n] = true;
+        children[n].forEach(function (c) { stack.push(c); });
+      }
+    });
+    // `v` and its ancestors, along paths that do not pass `avoid`
+    function upFrom(v, avoid) {
+      var seen = {}, stack = [v];
+      seen[v] = true;
+      while (stack.length) {
+        parents[stack.pop()].forEach(function (p) {
+          if (p !== avoid && !seen[p]) { seen[p] = true; stack.push(p); }
+        });
+      }
+      return seen;
+    }
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        var x = nodes[i], y = nodes[j];
+        var up = upFrom(x, y), upY = upFrom(y, x);
+        var joined = keys(up).some(function (v) { return upY[v]; }) ||
+          links.some(function (l) {
+            var u = l[0], w = l[1];
+            if (u === x && w === y || u === y && w === x) return false;
+            return up[u] && upY[w] || up[w] && upY[u];
+          });
+        if (joined) apart[x][y] = apart[y][x] = true;
+      }
+    }
+    return { reach: reach, apart: apart };
   }
 
   return {
     build: build,
     ancestors: ancestors,
-    descendants: descendants,
     determined: determined,
     withoutOutgoing: withoutOutgoing,
-    sharedCauses: sharedCauses,
-    legWaist: legWaist,
-    closeUnexplained: closeUnexplained,
-    unexplained: unexplained,
-    project: project,
-    pathNodes: pathNodes,
-    nearestForks: nearestForks,
-    explainEdge: explainEdge,
-    analyze: analyze,
+    summarize: summarize,
+    elements: elements,
+    routeSteps: routeSteps,
+    inOrder: inOrder,
+    causeCut: causeCut,
+    causeSet: causeSet,
+    topoOrder: topoOrder,
+    dependence: dependence,
   };
 })();
