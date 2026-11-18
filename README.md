@@ -53,15 +53,15 @@ problem.
 
     extensions = ["causalweb.sphinx_ext"]
 
-    .. causal-graph:: path/to/graph.yaml
+    .. causalweb-interactive:: path/to/graph.yaml
        :collapse: 1
 
-    .. causal-graph-table:: some_group
+    .. causalweb-table:: some_group
        :file: path/to/graph.yaml
 
-`causal-graph` embeds the viewer. `causal-graph-table` lists the subgroups of
-a group with their inputs, outputs and documentation. The table reads three
-keys from `data` that only this extension knows about:
+`causalweb-interactive` embeds the viewer. `causalweb-table` lists the
+subgroups of a group with their inputs, outputs and documentation. The table
+reads three keys from `data` that only this extension knows about:
 
 - `documentation_ref`: the document specifying a group or variable, which it
   links to.
@@ -76,7 +76,7 @@ The extension adds its assets to `html_static_path` itself.
 The table headers default to the level label of the subgroups, "Inputs",
 "Outputs" and "Documentation". Each one has an option that replaces it:
 
-    .. causal-graph-table:: some_group
+    .. causalweb-table:: some_group
        :file: path/to/graph.yaml
        :group-header: Module
        :inputs-header: Reads

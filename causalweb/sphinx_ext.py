@@ -2,12 +2,12 @@
 
 Provides two directives:
 
-  .. causal-graph:: path/to/graph.yaml
+  .. causalweb-interactive:: path/to/graph.yaml
      :group: some_group         # optional: restrict to one subtree
      :collapse: 1               # optional: aggregate to this hierarchy depth
      :height: 700px
 
-  .. causal-graph-table:: some_group
+  .. causalweb-table:: some_group
      :file: path/to/graph.yaml
      :group-header: Module             # optional: each header can be replaced
      :inputs-header: Inputs
@@ -409,8 +409,8 @@ def write_pages(app, exc):
 def setup(app):
     app.add_config_value("causalweb_default_file", None, "env")
     app.add_config_value("causalweb_assets", asset_fingerprint(), "env")
-    app.add_directive("causal-graph", CausalGraphDirective)
-    app.add_directive("causal-graph-table", CausalGraphTableDirective)
+    app.add_directive("causalweb-interactive", CausalGraphDirective)
+    app.add_directive("causalweb-table", CausalGraphTableDirective)
     # The assets live in this package. Sphinx copies the contents of every
     # static path into the output's _static, which is where the files below
     # and the whole-window pages expect to find each other.

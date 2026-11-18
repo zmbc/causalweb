@@ -16,13 +16,13 @@ INDEX = """\
 Graph
 =====
 
-.. causal-graph:: graph.yaml
+.. causalweb-interactive:: graph.yaml
    :collapse: 1
 
-.. causal-graph-table:: early
+.. causalweb-table:: early
    :file: graph.yaml
 
-.. causal-graph-table:: late
+.. causalweb-table:: late
    :file: graph.yaml
    :group-header: Part
    :inputs-header: Reads
