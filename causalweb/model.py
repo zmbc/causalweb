@@ -17,12 +17,12 @@ group. The roots are the groups nothing contains; a variable nothing contains is
 cross-cutting and is never folded into a group. One name cannot serve as both a
 group and a variable, since ``contains`` names both.
 
-``contains`` order is not cosmetic. It orders a module table's outputs, and
-walking it orders the inputs: the group's variables in ``contains`` order, each
-one's ``caused_by`` in the order that list gives. A cross-module input therefore
-sits where the module reading it puts it, which is the only place that knows what
-belongs first -- one global order cannot, since the same variable is read by
-several modules that each want it somewhere different.
+``contains`` order matters. It orders a module table's outputs, and walking it
+orders the inputs: the group's variables in ``contains`` order, each one's
+``caused_by`` in the order that list gives. A cross-module input therefore sits
+where the module reading it puts it, which is the only place that knows what
+belongs first: the same variable is read by several modules that each want it
+somewhere different.
 
 Keys on a group or a variable:
 
@@ -97,7 +97,7 @@ def _named_items(data: dict, key: str, problems: list[str]) -> list[dict]:
     """The entries of a top-level list that are mappings with a ``name``.
 
     Anything else is reported and skipped, so one malformed entry costs one
-    problem rather than the whole graph.
+    problem and the rest of the graph still loads.
     """
     out = []
     raw = data.get(key)
@@ -212,16 +212,6 @@ class CausalGraph:
         """Root-first groups a variable sits in. Empty for a cross-cutting one."""
         return self.path_of(self.group_of.get(name))
 
-    def descendant_groups(self, group: str) -> set[str]:
-        out, stack = {group}, [group]
-        while stack:
-            current = stack.pop()
-            for child in self.subgroups.get(current) or []:
-                if child in self.groups and child not in out:
-                    out.add(child)
-                    stack.append(child)
-        return out
-
     def nodes_in(self, group: str) -> list[str]:
         """This group's variables and its subgroups', depth first.
 
@@ -317,7 +307,7 @@ class CausalGraph:
                         f"{inactive[0]!r} -> {inactive[1]!r}, which does not exist"
                     )
 
-        # Keys the schema does not have are reported rather than ignored. The
+        # Keys the schema does not have are reported. The
         # one place for anything else is `data`, which is left alone.
         def unknown(keys, allowed, where):
             for key in keys:
@@ -438,7 +428,7 @@ def load_graph(path: Path) -> CausalGraph:
 
     Raises ``GraphError`` when the file cannot be read or parsed, or is so far
     from the schema that no graph can be built from it. Problems that leave a
-    graph standing are listed on ``CausalGraph.problems`` instead.
+    graph standing are listed on ``CausalGraph.problems``.
     """
     path = Path(path)
     try:

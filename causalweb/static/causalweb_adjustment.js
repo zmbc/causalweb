@@ -4,14 +4,14 @@
  * `window.CausalGraphQuery` from causalweb_query.js, which has to load first.
  * A model `m` here is the result of `CausalGraphQuery.build`.
  *
- * TWO THINGS THAT MAKE THIS A SIMULATION RATHER THAN A STUDY:
+ * TWO THINGS THAT MAKE THIS A SIMULATION:
  *
  * 1. Every variable is observed. There is no measurement problem, so an
  *    adjustment set may contain anything that is not a descendant of the
  *    cause. The correlated variables are still drawn as a shared latent,
  *    because that is what their joint draw amounts to and it is what makes
- *    path-tracing come out right -- but the latent itself is not a simulation
- *    variable, so it cannot be conditioned on. Its *children* can: blocking a
+ *    path-tracing come out right -- but the latent itself is outside the
+ *    simulation, so it cannot be conditioned on. Its *children* can: blocking a
  *    path through the correlation means conditioning on the other variable,
  *    which is perfectly observable.
  *
@@ -34,7 +34,7 @@ window.CausalGraphAdjustment = (function (Q) {
 
   /* ---- D-separation, via the ancestral moral graph --------------------- */
 
-  /* Blocking uses the determinism closure of Z rather than Z itself. A node
+  /* Blocking uses the determinism closure of Z. A node
    * fixed by Z behaves exactly as if it had been conditioned on: it blocks
    * non-colliders, and it opens colliders below it. Substituting the closure
    * throughout is what turns d-separation into D-separation. */

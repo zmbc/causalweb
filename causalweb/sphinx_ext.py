@@ -354,8 +354,8 @@ class CausalGraphTableDirective(_GraphDirective):
     def _ref(target, text=None):
         """A :ref: cross-reference.
 
-        With no ``text``, ``refexplicit`` is False so Sphinx substitutes the
-        target's own title rather than showing the raw target name.
+        With no ``text``, ``refexplicit`` is False so Sphinx shows the
+        target's own title.
         """
         from sphinx import addnodes
         pending = addnodes.pending_xref(
@@ -370,8 +370,9 @@ class CausalGraphTableDirective(_GraphDirective):
 def _pages(env) -> dict:
     """``{docname: {filename: (payload, collapse)}}`` for the standalone pages.
 
-    Kept on the environment, not in a module global: with a cached doctree the
-    directive never runs, and the page still has to be written.
+    Kept on the environment, which lasts from one build to the next: with a
+    cached doctree the directive never runs, and the page still has to be
+    written.
     """
     if not hasattr(env, "causalweb_pages"):
         env.causalweb_pages = {}

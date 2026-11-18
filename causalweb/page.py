@@ -20,8 +20,8 @@ ASSETS = ("causalweb.css", "causalweb_query.js", "causalweb.js")
 
 CDN_SCRIPTS = (
     "https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js",
-    # ELK rather than dagre: it is the only layout here that handles compound
-    # (nested) nodes while still producing a layered, direction-respecting graph.
+    # ELK handles compound (nested) nodes while still producing a layered,
+    # direction-respecting graph.
     "https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js",
     # 2.4.0 is the first release with opt-in ELK edge geometry
     # (useElkEdgeGeometry), which draws ELK's own edge routes.
@@ -65,9 +65,8 @@ def asset_fingerprint() -> str:
 def standalone_name(source: Path, group: str | None) -> str:
     """The filename of a graph's whole-window page, inside ``_static``.
 
-    Named after the graph rather than from ``hash()``, which is salted per
-    process: an incremental build reuses cached HTML, so a page name that
-    changed between builds would leave that HTML pointing at nothing. A graph
+    Named after the graph, so the name is the same in every build: an
+    incremental build reuses cached HTML, which must still point at the page. A graph
     file whose name matches something in ``html_static_path`` would shadow it,
     which is why the name follows the graph and nothing else.
     """
@@ -82,11 +81,11 @@ def widget_html(payload: str, *, collapse: int | None, uid: str | None = None,
                 standalone: str | None = None, height: str | None = None) -> str:
     """The ``div.causal-graph`` the viewer script builds the graph into.
 
-    The CDN URLs are handed to the browser as data rather than emitted as
-    ``<script>`` tags: nbsphinx loads RequireJS on every documentation page,
-    and these are UMD bundles, so a plain tag makes them register as anonymous
-    AMD modules and RequireJS throws "Mismatched anonymous define() module".
-    ``causalweb.js`` loads them with AMD suppressed instead.
+    The CDN URLs are handed to the browser as data, and ``causalweb.js``
+    loads them with AMD suppressed: nbsphinx loads RequireJS on every
+    documentation page, and these are UMD bundles, which would register as
+    anonymous AMD modules, and RequireJS would throw "Mismatched anonymous
+    define() module".
     """
     attrs = ['class="causal-graph"']
     if uid:
