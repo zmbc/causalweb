@@ -60,12 +60,18 @@ problem.
        :file: path/to/graph.yaml
 
 `causal-graph` embeds the viewer. `causal-graph-table` lists the subgroups of
-a group with their inputs, outputs and documentation. The table reads two
-keys from `data` that only this extension knows about: `documentation_ref`,
-the document specifying a group or variable, which it links to; and
-`categories`, the categories of a categorical variable, which it lists after
-the variable's label among the outputs. The extension adds its assets to
-`html_static_path` itself.
+a group with their inputs, outputs and documentation. The table reads three
+keys from `data` that only this extension knows about:
+
+- `documentation_ref`: the document specifying a group or variable, which it
+  links to.
+- `categories`: the categories of a categorical variable, which it lists
+  after the variable's label among the outputs.
+- `force_output: true`: lists a variable among its group's outputs even when
+  nothing outside the group consumes it, as for a variable that exists to be
+  reported.
+
+The extension adds its assets to `html_static_path` itself.
 
 The table headers default to the level label of the subgroups, "Inputs",
 "Outputs" and "Documentation". Each one has an option that replaces it:

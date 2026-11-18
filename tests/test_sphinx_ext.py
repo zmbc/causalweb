@@ -51,6 +51,33 @@ def test_categories():
     assert "'c' has categories 'mild', which is not a list of strings" in problems
 
 
+def test_io_orders_inputs_by_reference():
+    g = graph({"groups": [{"name": "early", "contains": ["b", "a", "inner"]},
+                          {"name": "late", "contains": ["d"]},
+                          {"name": "inner", "contains": ["c"]}],
+               "nodes": [{"name": "a"},
+                         {"name": "b", "caused_by": ["a"]},
+                         {"name": "c", "caused_by": ["b"]},
+                         {"name": "d", "caused_by": ["c", "x"]},
+                         {"name": "x"}]})
+    assert sphinx_ext.io_of(g, "late") == (["c", "x"], [])
+    assert sphinx_ext.io_of(g, "early") == ([], ["c"])
+
+
+def test_force_output():
+    g = graph({"groups": [{"name": "g", "contains": ["a", "b", "c", "d"]}],
+               "nodes": [{"name": "a", "data": {"force_output": True}},
+                         {"name": "b"},
+                         {"name": "c", "data": {"force_output": "yes"}},
+                         {"name": "d", "kind": "outcome"},
+                         {"name": "e", "caused_by": ["b"]}]})
+    # b is consumed outside the group, and a is forced; a kind forces nothing
+    assert sphinx_ext.io_of(g, "g") == ([], ["a", "b"])
+    assert g.problems == []
+    assert sphinx_ext.data_problems(g) == [
+        "'c' has force_output 'yes', which is not true or false"]
+
+
 def test_documentation_ref():
     g = graph({"groups": [{"name": "g", "data": {"documentation_ref": {"text": "x"}}}],
                "nodes": [{"name": "a", "data": {"documentation_ref": ["r1", 5]}}]})
@@ -63,11 +90,15 @@ def test_build(tmp_path):
     src, out = tmp_path / "src", tmp_path / "out"
     src.mkdir()
     (src / "conf.py").write_text('extensions = ["causalweb.sphinx_ext"]\n')
-    # e1b is an output of early_one and an input of e_mid
+    # e1b is an output of early_one and an input of e_mid. Nothing consumes
+    # l2a, so it is an output of late_two only when forced.
     yaml = NESTED.read_text(encoding="utf-8").replace(
         "  - name: e1b\n    caused_by: [e1a]\n",
-        "  - name: e1b\n    caused_by: [e1a]\n    data:\n      categories: [low, high]\n")
-    assert "categories" in yaml
+        "  - name: e1b\n    caused_by: [e1a]\n    data:\n      categories: [low, high]\n"
+    ).replace(
+        "  - name: l2a\n    caused_by: [l1b, x, l2b]\n",
+        "  - name: l2a\n    caused_by: [l1b, x, l2b]\n    data:\n      force_output: true\n")
+    assert "categories" in yaml and "force_output" in yaml
     (src / "graph.yaml").write_text(yaml, encoding="utf-8")
     (src / "index.rst").write_text(INDEX)
     warnings = io.StringIO()
@@ -92,3 +123,5 @@ def test_build(tmp_path):
     assert "<p>Documentation</p>" not in tables[1]
     # categories follow the label among the outputs, and not the inputs
     assert tables[0].count("(low | high)") == 1
+    # the forced output is listed
+    assert "L2a" in tables[1]

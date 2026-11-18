@@ -31,7 +31,7 @@ Each graph also gets a whole-window page of its own in ``_static``, which the
 widget's "New tab" button links to.
 
 The YAML schema is documented in ``causalweb.model``. This extension reads
-two keys of its own from a group's or variable's ``data`` mapping:
+three keys of its own from a group's or variable's ``data`` mapping:
 
 ``documentation_ref``
     The document specifying it: a ``:ref:`` target, or a ``{ref:, text:}``
@@ -44,6 +44,10 @@ two keys of its own from a group's or variable's ``data`` mapping:
     On a variable only: the categories it takes, as a list of strings, if it
     is categorical. A module table lists them after the variable's label in
     its "Outputs" column.
+``force_output``
+    On a variable only: true to list it among its group's outputs even when
+    nothing outside the group consumes it, as for a variable that exists to
+    be reported. Default false.
 
 Enable it with ``extensions = ["causalweb.sphinx_ext"]``. The viewer's CSS
 and JS ship inside this package and are added to ``html_static_path`` here, so
@@ -90,6 +94,40 @@ def categories_of(node: dict) -> list[str]:
     return categories if _is_str_list(categories) else []
 
 
+def forces_output(node: dict) -> bool:
+    """Whether a variable is an output of its group whatever consumes it."""
+    return _data_of(node).get("force_output") is True
+
+
+def io_of(graph, group: str) -> tuple[list[str], list[str]]:
+    """Variables entering and leaving ``group``, for its row of a table.
+
+    A variable is an output if anything outside the group consumes it, or if
+    it has ``force_output``.
+    """
+    order = graph.nodes_in(group)
+    inside = set(order)
+    inputs, outputs = [], set()
+    for name in order:
+        for parent in graph.nodes[name]["caused_by"]:
+            if parent in graph.nodes and parent not in inside:
+                inputs.append(parent)
+        if forces_output(graph.nodes[name]):
+            outputs.add(name)
+    for parent, child in graph.edges():
+        if parent in inside and child not in inside:
+            outputs.add(parent)
+    # Inputs keep the order they were referenced in: the group's variables
+    # in `contains` order, each one's `caused_by` in the order that list
+    # gives. So a cross-module input sits where the module reading it puts
+    # it, which is the only place that knows what belongs first. One variable
+    # is read by several modules that each want it somewhere different.
+    #
+    # Outputs are the group's own variables, so `contains` order is both the
+    # natural reading order and the editable one.
+    return list(dict.fromkeys(inputs)), [name for name in order if name in outputs]
+
+
 def data_problems(graph) -> list[str]:
     """What is wrong with this extension's keys in ``data``, if anything."""
     out = []
@@ -104,6 +142,10 @@ def data_problems(graph) -> list[str]:
         if categories is not None and not _is_str_list(categories):
             out.append(f"{name!r} has categories {categories!r}, which is not "
                        f"a list of strings")
+        force = _data_of(node).get("force_output")
+        if force is not None and not isinstance(force, bool):
+            out.append(f"{name!r} has force_output {force!r}, which is not "
+                       f"true or false")
     return out
 
 
@@ -244,7 +286,7 @@ class CausalGraphTableDirective(_GraphDirective):
 
         for child in children:
             info = graph.groups[child]
-            inputs, outputs = graph.io_for(child)
+            inputs, outputs = io_of(graph, child)
             name_cell = nodes.paragraph()
             refs = refs_of(info)
             if refs:

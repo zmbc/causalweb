@@ -115,12 +115,6 @@ def test_top_level_not_mapping():
 
 # Derived views
 
-def test_io_for_orders_inputs_by_reference():
-    g = graph(SMALL)
-    assert g.io_for("late") == (["c", "x"], ["d"])
-    assert g.io_for("early") == ([], ["c"])
-
-
 def test_to_json_shape():
     j = graph(SMALL).to_json()
     assert j["levelLabels"] == ["phase"]
@@ -138,16 +132,13 @@ def test_to_json_shape():
 
 def test_kinds():
     g = graph({"groups": [{"name": "g", "contains": ["a", "b", "c"]}],
-               "nodes": [{"name": "a", "observed": True},
+               "nodes": [{"name": "a"},
                          {"name": "b", "kind": "intervention"},
                          {"name": "c", "kind": "outcome"},
                          {"name": "d", "kind": "sideways"}]})
-    assert any("unknown key 'observed'" in p for p in g.problems)
     assert any("kind 'sideways'" in p for p in g.problems)
     kinds = {n["id"]: n["kind"] for n in g.to_json()["nodes"]}
     assert kinds == {"a": None, "b": "intervention", "c": "outcome", "d": "sideways"}
-    # only an outcome is an output of its group by itself
-    assert g.io_for("g") == ([], ["c"])
 
 
 def test_payload_escapes_script_end():

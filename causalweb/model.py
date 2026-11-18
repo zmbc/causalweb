@@ -45,8 +45,8 @@ Keys on a variable only:
     treats that variable as fixed too.
 ``kind``
     Optional: ``intervention`` or ``outcome``. Each is drawn with a fill of its
-    own. An outcome also counts among its group's outputs in the tables whether
-    or not anything downstream consumes it.
+    own. In a model of disease burden, the outcomes are the burden itself, such
+    as deaths and years lived with disability.
 
 ``contexts`` name what the graph loses in a given context. ``fixed`` lists
 variables with no variation in it, which cannot confound anything and are cut
@@ -380,38 +380,6 @@ class CausalGraph:
             for parent in node["caused_by"]
             if parent in self.nodes
         ]
-
-    def io_for(self, group: str) -> tuple[list[str], list[str]]:
-        """Variables entering and leaving ``group``.
-
-        A variable is an output if anything outside the group consumes it, or
-        if it is an outcome. Without the second half, a variable that exists
-        only to be reported (it has no children at all) would silently vanish
-        from the group's outputs.
-        """
-        order = self.nodes_in(group)
-        rank = {name: i for i, name in enumerate(order)}
-        inside = set(order)
-        inputs, outputs = [], []
-        for name in order:
-            for parent in self.nodes[name]["caused_by"]:
-                if parent in self.nodes and parent not in inside:
-                    inputs.append(parent)
-            if self.nodes[name].get("kind") == "outcome":
-                outputs.append(name)
-        for parent, child in self.edges():
-            if parent in inside and child not in inside:
-                outputs.append(parent)
-        # Inputs keep the order they were referenced in: the group's variables
-        # in `contains` order, each one's `caused_by` in the order that list
-        # gives. So a cross-module input sits where the module reading it puts
-        # it, which is the only place that knows what belongs first. A single
-        # global order cannot do this, since one variable is read by several
-        # modules that each want it somewhere different.
-        #
-        # Outputs are the group's own variables, so `contains` order is both the
-        # natural reading order and the editable one.
-        return list(dict.fromkeys(inputs)), sorted(set(outputs), key=rank.__getitem__)
 
     def to_json(self, group: str | None = None) -> dict:
         keep = set(self.nodes_in(group)) if group else set(self.nodes)
